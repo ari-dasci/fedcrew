@@ -1,0 +1,15 @@
+runs/
+*.sh
+*.pck
+*.pth
+__pycache__/
+*.xml
+
+# Datasets
+*.tar.gz
+
+# logs
+*.out
+
+# images
+*.png
