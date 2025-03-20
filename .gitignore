@@ -2,6 +2,7 @@ runs/
 *.sh
 *.pck
 *.pth
+*.pkl
 __pycache__/
 *.xml
 
