@@ -181,6 +181,12 @@ def create_client_heatmaps(server_model: FlexModel, _: Dataset, subsample_datase
         client_model = load_client_model(model, weights, client_id)
         client_crp(client_model, client_id, subsample_dataset)
 
+
+def create_server_heatmap(server_model: FlexModel, _: Dataset, subsample_dataset: Dataset):
+    model = server_model["model"].to(device)
+    client_crp(model, "server", subsample_dataset)
+
+
 def client_crp(client_model: nn.Module, client_id: int, sample_dataset: Dataset):
     data = sample_dataset.to_torchvision_dataset()
     for sample_id in range(len(data)):
@@ -314,16 +320,18 @@ def train_base(pool: FlexPool, n_rounds=100):
         selected_clients.map(train)
         pool.aggregators.map(get_clients_weights, selected_clients)
         selected_clients.map(clean_up_models)
-        if round_number % 10 == 0 and round_number > 0:
-            pool.servers.map(create_client_heatmaps, subsample_dataset = subsamples)
 
-        ponderation_tensor = pool.servers.map(compute_features_weights_per_client, subsamples=subsamples)[0] if args.causal else None
+        ponderation_tensor = pool.servers.map(compute_features_weights_per_client, subsamples=subsamples)[
+            0] if args.causal else None
 
         if args.causal:
             pool.aggregators.map(AGG, ponderation_tensor = ponderation_tensor)
         else:
             pool.aggregators.map(AGG)
         pool.aggregators.map(set_aggregated_weights_to_server, pool.servers)
+
+        if round_number % 10 == 0 and round_number > 0:
+            pool.servers.map(create_server_heatmap, subsample_dataset=subsamples)
 
         loss, acc = pool.servers.map(obtain_metrics)[0]
         if writer:
