@@ -185,8 +185,8 @@ def create_client_heatmaps(server_model: FlexModel, _: Dataset, subsample_datase
 
 
 def create_server_heatmap(server_model: FlexModel, _: Dataset, subsample_dataset: Dataset):
-    model = server_model["model"].to(device)
-    client_crp(model, "server", subsample_dataset)
+    model = server_model["model"]
+    client_crp(deepcopy(model).to(device), "server", subsample_dataset)
 
 
 def client_crp(client_model: nn.Module, client_id: int, sample_dataset: Dataset):
@@ -332,7 +332,7 @@ def train_base(pool: FlexPool, n_rounds=100):
             pool.aggregators.map(AGG)
         pool.aggregators.map(set_aggregated_weights_to_server, pool.servers)
 
-        if round_number % 10 == 0 and round_number > 0:
+        if (round_number + 1) % 5 == 0 and round_number > 0:
             pool.servers.map(create_server_heatmap, subsample_dataset=subsamples)
 
         loss, acc = pool.servers.map(obtain_metrics)[0]
