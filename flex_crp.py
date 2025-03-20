@@ -31,7 +31,7 @@ device = "cuda"
 round_number = 0
 parser = argparse.ArgumentParser(description="Conditional Relevance Propagation for Causal Learning")
 parser.add_argument("--dataset", type=str, choices=["cifar_10", "imagenet", "celeba"], default="cifar_10",
-    help="Dataset to use", )
+                    help="Dataset to use", )
 parser.add_argument("--clients", type=int, default=100, help="Number of clients per round")
 parser.add_argument("--causal", action="store_true", help="Whether use the causal ponderated aggregation")
 
@@ -40,6 +40,8 @@ parser.add_argument("--lognum", type=int, default=0, help="Number of logs to kee
 parser.add_argument("--epochs", type=int, default=10, help="Number of epochs to train")
 parser.add_argument("--batchsize", type=int, default=64, help="Batch size to use for training on clients", )
 parser.add_argument("--clipgradients", action="store_true", help="Whether to clip gradients")
+
+parser.add_argument("--samples", type=int, default=2, help="Number of samples per class to select")
 
 parser.add_argument("--f", type=int, default=1, help="Parameter for the Krum aggregation operator")
 
@@ -54,9 +56,9 @@ AGG = causal_weighted_average if args.causal else fed_avg
 
 
 def get_summary_writer_filename(args):
-    parts = ["SGD" if args.epochs == 1 else "", "gradients_clipped" if args.clipgradients else "", "causal" if args.causal else "avg",
-        f"lognum_{args.lognum}" if args.lognum > 0 else "", ]
-    return f"runs/{args.dataset}/" + "-".join(filter(None, parts))
+    parts = ["causal" if args.causal else "avg", f"samples{args.samples}"
+                                                 f"lognum{args.lognum}" if args.lognum > 0 else "", ]
+    return f"runs/{args.dataset}/" + "_".join(filter(None, parts))
 
 
 writer = SummaryWriter(get_summary_writer_filename(args)) if not args.no_log else None
@@ -309,7 +311,7 @@ def compute_features_weights_per_client(server_model: FlexModel, _, subsamples: 
 
 def train_base(pool: FlexPool, n_rounds=100):
     clients = pool.clients
-    subsamples: Dataset = pool.servers.map(select_subsample_server_data)[0]
+    subsamples: Dataset = pool.servers.map(select_subsample_server_data, k=args.samples)[0]
     selected_clients = clients.select(CLIENTS_PER_ROUND)
 
     for i in tqdm(range(n_rounds)):
@@ -325,7 +327,7 @@ def train_base(pool: FlexPool, n_rounds=100):
             0] if args.causal else None
 
         if args.causal:
-            pool.aggregators.map(AGG, ponderation_tensor = ponderation_tensor)
+            pool.aggregators.map(AGG, ponderation_tensor=ponderation_tensor)
         else:
             pool.aggregators.map(AGG)
         pool.aggregators.map(set_aggregated_weights_to_server, pool.servers)
