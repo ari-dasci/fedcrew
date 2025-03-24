@@ -12,6 +12,8 @@ def get_dataset(dataset: str) -> Tuple[FedDataset, Dataset]:
             return _cifar_10_iid()
         case "imagenet":
             return _imagenet()
+        case "waterbirds":
+            return _waterbirds()
         case _:
             raise ValueError(f"Unknown dataset: {dataset}")
 
@@ -34,13 +36,8 @@ def _celeba_non_iid():
 
     def select_label(dataset: Dataset):
         smiling_index = -9
-        y_data = (
-            [y[1] for y in dataset.y_data]
-            if isinstance(dataset.y_data[0], tuple)
-            else dataset.y_data
-        )
+        y_data = ([y[1] for y in dataset.y_data] if isinstance(dataset.y_data[0], tuple) else dataset.y_data)
 
-        y_data = [np.eye(2)[label[smiling_index]] for label in y_data]
         y_data = LazyIndexable(y_data, len(y_data))
         return Dataset(X_data=dataset.X_data, y_data=y_data)
 
@@ -74,6 +71,7 @@ def _cifar_10_iid():
 
     return flex_dataset, test_data
 
+
 def _imagenet():
     from imagenetsubset import load_tiny_imagenet
     train_data = load_tiny_imagenet(train=True)
@@ -89,4 +87,27 @@ def _imagenet():
 
     assert isinstance(flex_dataset, FedDataset)
 
+    return flex_dataset, test_data
+
+
+def _waterbirds():
+    from utils.waterbirds import WaterbirdsDataset
+    train_data = WaterbirdsDataset(train=True)
+    test_data = WaterbirdsDataset(train=False)
+    flex_dataset = Dataset.from_torchvision_dataset(train_data)
+    test_data = Dataset.from_torchvision_dataset(test_data)
+
+    def select_label(dataset: Dataset):
+        label_index = 0
+        y_data = [y[0] for y in dataset.y_data]
+        y_data = LazyIndexable(y_data, len(y_data))
+        return Dataset(X_data=dataset.X_data, y_data=y_data)
+
+    flex_dataset = select_label(flex_dataset)
+
+    config = FedDatasetConfig(seed=0)
+    config.replacement = False
+    config.n_nodes = 100
+
+    flex_dataset = FedDataDistribution.from_config(flex_dataset, config)
     return flex_dataset, test_data

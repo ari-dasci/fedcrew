@@ -6,7 +6,7 @@ import torch
 
 def get_model(dataset: str):
     match dataset:
-        case "celeba":
+        case "celeba" | "waterbirds":
             return _get_resnet(num_classes=2)
             # return CelebaNet(num_classes=2)
         case _:

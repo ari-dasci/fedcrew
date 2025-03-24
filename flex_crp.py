@@ -8,7 +8,7 @@ from crp.attribution import CondAttribution
 from crp.concepts import ChannelConcept
 from crp.helper import get_layer_names
 from crp.image import imgify
-from flex.data import Dataset
+from flex.data import Dataset, LazyIndexable
 from flex.model import FlexModel
 from flex.pool import FlexPool, fed_avg
 from torch import nn
@@ -30,7 +30,7 @@ device = "cuda"
 
 round_number = 0
 parser = argparse.ArgumentParser(description="Conditional Relevance Propagation for Causal Learning")
-parser.add_argument("--dataset", type=str, choices=["cifar_10", "imagenet", "celeba"], default="cifar_10",
+parser.add_argument("--dataset", type=str, choices=["cifar_10", "imagenet", "celeba", "waterbirds"], default="cifar_10",
                     help="Dataset to use", )
 parser.add_argument("--clients", type=int, default=100, help="Number of clients per round")
 parser.add_argument("--causal", action="store_true", help="Whether use the causal ponderated aggregation")
@@ -70,6 +70,12 @@ print(f"Running options: {args}")
 
 data_transforms = get_transforms(args.dataset)
 
+def select_waterbirds_label(dataset: Dataset):
+    label_index = 0
+    y_data = [y[0] for y in dataset.y_data]
+    y_data = LazyIndexable(y_data, len(y_data))
+    return Dataset(X_data=dataset.X_data, y_data=y_data)
+
 
 def train(client_flex_model: FlexModel, client_data: Dataset, rank=None):
     local_device = device if rank is None else "cuda:" + str(rank)
@@ -91,6 +97,9 @@ def train(client_flex_model: FlexModel, client_data: Dataset, rank=None):
 
 
 def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset):
+    if "waterbirds" in args.dataset:
+        test_data = select_waterbirds_label(test_data)
+
     model = server_flex_model["model"]
     model.eval()
     test_acc = 0
@@ -107,11 +116,8 @@ def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset):
             data, target = data.to(device), target.to(device)
             output = model(data)
             losses.append(criterion(output, target).item())
-            if "celeba" in args.dataset:
-                test_acc += (output.argmax(1) == target.argmax(1)).sum().cpu().item()
-            else:
-                pred = output.data.max(1, keepdim=True)[1]
-                test_acc += pred.eq(target.data.view_as(pred)).long().cpu().sum().item()
+            pred = output.data.max(1, keepdim=True)[1]
+            test_acc += pred.eq(target.data.view_as(pred)).long().cpu().sum().item()
 
     test_loss = sum(losses) / len(losses)
     test_acc /= total_count
@@ -132,21 +138,21 @@ def select_subsample_server_data(_, dataset: Dataset, k=2) -> Dataset:
     """
     print("Creating subsample")
     labels = dataset.y_data
-    try:
-        labels_to_indices = {label: [] for label in labels}
-    except TypeError:
-        labels_to_indices = {np.argmax(label): [] for label in labels}
+    if args.dataset == "waterbirds":
+        labels = [(label[0], label[1]) for label in labels]
+    labels_to_indices = {label: [] for label in labels}
 
     for i, label in enumerate(labels):
-        try:
-            if len(labels_to_indices[label]) < k:
-                labels_to_indices[label].append(i)
-        except TypeError:
-            if len(labels_to_indices[np.argmax(label)]) < k:
-                labels_to_indices[np.argmax(label)].append(i)
+        if len(labels_to_indices[label]) < k:
+            labels_to_indices[label].append(i)
+
     indices = [v for v in labels_to_indices.values()]
     indices = [i for sublist in indices for i in sublist]
     new_dataset = dataset[indices]
+
+    if args.dataset == "waterbirds":
+        new_dataset = select_waterbirds_label(new_dataset)
+
     torch_data = new_dataset.to_torchvision_dataset()
     transform = transforms.ToTensor()
     for i in range(len(torch_data)):
@@ -219,9 +225,6 @@ def group_correct_class_probs(model: nn.Module, sample_dataset: Dataset):
             inputs = inputs.to(device)
             labels = labels.to(device)
 
-            if "celeba" in args.dataset:
-                labels = labels.argmax(1)
-
             sample_logits = model(inputs)  # shape: (batch_size, num_classes)
             probs = torch.softmax(sample_logits, dim=1)  # shape: (batch_size, num_classes)
 
@@ -254,9 +257,6 @@ def get_crp_attribution(model: nn.Module, sample_dataset: Dataset, layer: str):
         sample = data_transforms(sample.squeeze()).to(device)
         sample = sample.unsqueeze(0)
         sample.requires_grad = True
-
-        if "celeba" in args.dataset:
-            label = int(label.argmax(1))
 
         conditions = [{"y": [label]}]
         attr = attribution(sample, conditions, composite, record_layer=layer_names)
