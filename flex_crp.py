@@ -56,9 +56,9 @@ AGG = causal_weighted_average if args.causal else fed_avg
 
 
 def get_summary_writer_filename(args):
-    parts = ["causal" if args.causal else "avg", f"samples{args.samples}"
-                                                 f"lognum{args.lognum}" if args.lognum > 0 else "", ]
-    return f"runs/{args.dataset}/" + "_".join(filter(None, parts))
+    parts = ["causal" if args.causal else "avg", f"samples{args.samples}",
+             f"lognum{args.lognum}" if args.lognum > 0 else "", ]
+    return f"runs/{args.dataset}/" + ".".join([part for part in parts if part])
 
 
 writer = SummaryWriter(get_summary_writer_filename(args)) if not args.no_log else None
@@ -69,6 +69,7 @@ client_ids = list(flex_dataset.keys())
 print(f"Running options: {args}")
 
 data_transforms = get_transforms(args.dataset)
+
 
 def select_waterbirds_label(dataset: Dataset):
     label_index = 0
@@ -312,11 +313,11 @@ def compute_features_weights_per_client(server_model: FlexModel, _, subsamples: 
 def train_base(pool: FlexPool, n_rounds=100):
     clients = pool.clients
     subsamples: Dataset = pool.servers.map(select_subsample_server_data, k=args.samples)[0]
-    selected_clients = clients.select(CLIENTS_PER_ROUND)
 
     for i in tqdm(range(n_rounds)):
         global round_number
         round_number = i
+        selected_clients = clients.select(CLIENTS_PER_ROUND)
         pool.servers.map(copy_server_model_to_clients, selected_clients)
 
         selected_clients.map(train)
@@ -339,7 +340,7 @@ def train_base(pool: FlexPool, n_rounds=100):
         if writer:
             writer.add_scalar("Loss", loss, round_number)
             writer.add_scalar("Accuracy", acc, round_number)
-            print(f"ROUND {round_number}: loss {loss:7}, acc {acc:7}")
+        print(f"ROUND {round_number}: loss {loss:7}, acc {acc:7}")
 
 
 def run_server_pool():
