@@ -12,7 +12,6 @@ from torchvision.models import resnet18, ResNet18_Weights
 class DatasetConfig:
     num_classes: int
     transforms: Callable[[], transforms.Compose]
-    relevance_layer: str
     model_factory: Callable[[], nn.Module]
 
 
@@ -23,14 +22,16 @@ def _get_resnet(num_classes: int = 10, pretraining=False):
 
 
 DATASET_CONFIG = {"celeba": DatasetConfig(num_classes=2, transforms=lambda: transforms.Compose(
-    [transforms.ToPILImage(), ResNet18_Weights.DEFAULT.transforms()]), relevance_layer="conv4",
-                                          model_factory=lambda: _get_resnet(num_classes=2)),
+    [transforms.ToPILImage(), ResNet18_Weights.DEFAULT.transforms()]), model_factory=lambda: _get_resnet(num_classes=2)),
                   "waterbirds": DatasetConfig(num_classes=2, transforms=lambda: ResNet18_Weights.DEFAULT.transforms(),
-                                              relevance_layer="layer4.1.conv2",
                                               model_factory=lambda: _get_resnet(num_classes=2)),
                   "default": DatasetConfig(num_classes=10, transforms=lambda: ResNet18_Weights.DEFAULT.transforms(),
-                                           relevance_layer="layer4.1.conv2",
                                            model_factory=lambda: _get_resnet(num_classes=10))}
+
+def fetch_relevance_layer(model: nn.Module) -> str:
+    if isinstance(model, CelebaNet):
+        return "conv4"
+    return "layer4.1.conv2" # Resnet-18
 
 
 def get_model(dataset: str):
@@ -45,7 +46,7 @@ def get_transforms(dataset: str):
 
 def get_relevance_layer(dataset: str):
     config = DATASET_CONFIG.get(dataset, DATASET_CONFIG["default"])
-    return config.relevance_layer
+    return fetch_relevance_layer(config.model_factory())
 
 
 class CelebaNet(nn.Module):
