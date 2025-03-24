@@ -1,27 +1,17 @@
-from typing import Tuple
+from dataclasses import dataclass
+from typing import Callable, Tuple
 
-import numpy as np
 from flex.data import Dataset, FedDataDistribution, FedDataset, FedDatasetConfig, LazyIndexable
 
 
-def get_dataset(dataset: str) -> Tuple[FedDataset, Dataset]:
-    match dataset:
-        case "celeba":
-            return _celeba_non_iid()
-        case "cifar_10":
-            return _cifar_10_iid()
-        case "imagenet":
-            return _imagenet()
-        case "waterbirds":
-            return _waterbirds()
-        case _:
-            raise ValueError(f"Unknown dataset: {dataset}")
+@dataclass
+class DatasetConfig:
+    loader: Callable[[], Tuple[FedDataset, Dataset]]
 
 
 def _celeba_non_iid():
     import dill as pickle
     from flex.datasets.federated_datasets import federated_celeba
-
     try:
         with open("celeba_fed.pck", "rb") as f:
             flex_dataset = pickle.load(f)
@@ -37,19 +27,16 @@ def _celeba_non_iid():
     def select_label(dataset: Dataset):
         smiling_index = -9
         y_data = ([y[1] for y in dataset.y_data] if isinstance(dataset.y_data[0], tuple) else dataset.y_data)
-
         y_data = LazyIndexable(y_data, len(y_data))
         return Dataset(X_data=dataset.X_data, y_data=y_data)
 
     flex_dataset = flex_dataset.apply(select_label)
     test_data = select_label(test_data)
-
     return flex_dataset, test_data
 
 
 def _cifar_10_iid():
     from torchvision.datasets import CIFAR10
-
     train_data = CIFAR10(root="../data", train=True, download=True, transform=None)
     test_data = CIFAR10(root="../data", train=False, download=True, transform=None)
     flex_dataset = Dataset.from_torchvision_dataset(train_data)
@@ -68,7 +55,6 @@ def _cifar_10_iid():
             del flex_dataset[k]
 
     assert isinstance(flex_dataset, FedDataset)
-
     return flex_dataset, test_data
 
 
@@ -86,7 +72,6 @@ def _imagenet():
     flex_dataset = FedDataDistribution.from_config(flex_dataset, config)
 
     assert isinstance(flex_dataset, FedDataset)
-
     return flex_dataset, test_data
 
 
@@ -111,3 +96,14 @@ def _waterbirds():
 
     flex_dataset = FedDataDistribution.from_config(flex_dataset, config)
     return flex_dataset, test_data
+
+
+DATASET_CONFIG = {"celeba": DatasetConfig(loader=_celeba_non_iid), "cifar_10": DatasetConfig(loader=_cifar_10_iid),
+    "imagenet": DatasetConfig(loader=_imagenet), "waterbirds": DatasetConfig(loader=_waterbirds), }
+
+
+def get_dataset(dataset: str) -> Tuple[FedDataset, Dataset]:
+    config = DATASET_CONFIG.get(dataset)
+    if config is None:
+        raise ValueError(f"Unknown dataset: {dataset}")
+    return config.loader()
