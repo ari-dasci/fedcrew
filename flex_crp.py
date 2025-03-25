@@ -47,6 +47,7 @@ parser.add_argument("--f", type=int, default=1, help="Parameter for the Krum agg
 
 parser.add_argument("--no_log", action="store_true", help="If activated, no logs will be saved")
 parser.add_argument("--rounds", type=int, default=100, help="Number of rounds")
+parser.add_argument("--l1", type=float, default=0.0, help="L1 regularization factor")
 args = parser.parse_args()
 
 CLIENTS_PER_ROUND = args.clients
@@ -56,7 +57,7 @@ AGG = causal_weighted_average if args.causal else fed_avg
 
 
 def get_summary_writer_filename(args):
-    parts = ["causal" if args.causal else "avg", f"samples{args.samples}",
+    parts = ["causal" if args.causal else "avg", f"samples{args.samples}", "l1" if args.l1 > 0.0 else "",
              f"lognum{args.lognum}" if args.lognum > 0 else "", ]
     return f"runs/{args.dataset}/" + ".".join([part for part in parts if part])
 
@@ -78,21 +79,24 @@ def select_waterbirds_label(dataset: Dataset):
     return Dataset(X_data=dataset.X_data, y_data=y_data)
 
 
-def train(client_flex_model: FlexModel, client_data: Dataset, rank=None):
-    local_device = device if rank is None else "cuda:" + str(rank)
+def train(client_flex_model: FlexModel, client_data: Dataset, l1_factor=args.l1):
     train_dataset = client_data.to_torchvision_dataset(transform=data_transforms)
     client_dataloader = DataLoader(train_dataset, batch_size=args.batchsize, shuffle=True)
     model = client_flex_model["model"]
     optimizer = client_flex_model["optimizer_func"](model.parameters(), **client_flex_model["optimizer_kwargs"])
     model = model.train()
-    model = model.to(local_device)
+    model = model.to(device)
     criterion = client_flex_model["criterion"]
     for _ in range(EPOCHS):
-        for imgs, labels in client_dataloader:
-            imgs, labels = imgs.to(device), labels.to(device)
+        for images, labels in client_dataloader:
+            images, labels = images.to(device), labels.to(device)
             optimizer.zero_grad()
-            pred = model(imgs)
+            pred = model(images)
             loss = criterion(pred, labels)
+            if l1_factor > 0.0:
+                # TODO: fc is hardcoded
+                l1_loss = sum(p.abs().sum() for p in model.fc.parameters())
+                loss += l1_factor * l1_loss
             loss.backward()
             optimizer.step()
 
@@ -266,6 +270,8 @@ def get_crp_attribution(model: nn.Module, sample_dataset: Dataset, layer: str):
         rel_c_min = torch.min(rel_c)
         rel_c_max = torch.max(rel_c)
         rel_c = (rel_c - rel_c_min) / (rel_c_max - rel_c_min)
+        if isinstance(label, torch.Tensor):
+            label = label.item()
         if label not in contributions:
             contributions[label] = []
         contributions[label].append(rel_c)
@@ -299,7 +305,6 @@ def compute_features_weights_per_client(server_model: FlexModel, _, subsamples: 
         label_probs = torch.tensor([clients_probs[client_id][label] for client_id in range((len(weights)))],
                                    dtype=torch.float32).to(device)
         sample_weight = torch.softmax(label_probs.flatten(), dim=0).view(*label_probs.shape)  # (n_clients, n_samples)
-
         label_relevances = torch.stack([clients_relevances[client_id][label] for client_id in range(len(weights))]).to(
             device)  # (n_clients, n_samples, n_features)
 
