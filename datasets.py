@@ -27,6 +27,7 @@ def _celeba_non_iid():
     def select_label(dataset: Dataset):
         smiling_index = -9
         y_data = ([y[1] for y in dataset.y_data] if isinstance(dataset.y_data[0], tuple) else dataset.y_data)
+        y_data = [y[smiling_index] for y in y_data]
         y_data = LazyIndexable(y_data, len(y_data))
         return Dataset(X_data=dataset.X_data, y_data=y_data)
 
