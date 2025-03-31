@@ -34,7 +34,11 @@ def extract_heatmap(model: torch.nn.Module, sample, layer: str, transforms: Opti
     conditions = [{"y": [label]}]
     attr = attribution(sample, conditions, composite, record_layer=layer_names)
     rel_c = cc.attribute(attr.relevances[layer], abs_norm=True)
-    rel_values, rel_indices = torch.topk(rel_c[0], k=k)
+    if k is None:
+        rel_indices = torch.argsort(rel_c[0])
+        rel_values = rel_c[0][rel_indices]
+    else:
+        rel_values, rel_indices = torch.topk(rel_c[0], k=k)
     conditions = [{"y": label, layer: [feat_id]} for feat_id in rel_indices]
     heatmap, _, _, _ = attribution(sample, conditions, composite) # (k, img_size, img_size)
     return heatmap, len(rel_indices)
