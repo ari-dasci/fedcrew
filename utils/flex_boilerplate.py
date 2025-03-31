@@ -10,13 +10,13 @@ from models import get_model
 
 
 @init_server_model
-def build_server_model(dataset: str):
+def build_server_model(dataset: str, l2_factor: float = 0.0):
     server_flex_model = FlexModel()
     server_flex_model["model"] = get_model(dataset)
     # Required to store this for later stages of the FL training process
     server_flex_model["criterion"] = torch.nn.CrossEntropyLoss()
     server_flex_model["optimizer_func"] = torch.optim.Adam
-    server_flex_model["optimizer_kwargs"] = {}
+    server_flex_model["optimizer_kwargs"] = {"weight_decay": l2_factor}
     return server_flex_model
 
 

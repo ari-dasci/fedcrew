@@ -1,7 +1,9 @@
 import argparse
+import os
 from copy import deepcopy
-from typing import List
+from typing import List, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from crp.attribution import CondAttribution
@@ -48,6 +50,8 @@ parser.add_argument("--f", type=int, default=1, help="Parameter for the Krum agg
 parser.add_argument("--no_log", action="store_true", help="If activated, no logs will be saved")
 parser.add_argument("--rounds", type=int, default=100, help="Number of rounds")
 parser.add_argument("--l1", type=float, default=0.0, help="L1 regularization factor")
+parser.add_argument("--l2", type=float, default=0.0, help="L2 regularization factor")
+parser.add_argument("--alpha", type=float, default=0.5, help="Threshold for counting a sample as correct")
 args = parser.parse_args()
 
 CLIENTS_PER_ROUND = args.clients
@@ -57,8 +61,8 @@ AGG = causal_weighted_average if args.causal else fed_avg
 
 
 def get_summary_writer_filename(args):
-    parts = ["causal" if args.causal else "avg", f"samples{args.samples}", "l1" if args.l1 > 0.0 else "",
-             f"lognum{args.lognum}" if args.lognum > 0 else "", ]
+    parts = ["causal" if args.causal else "avg", f"samples{args.samples}", "l1" if args.l1 > 0.0 else "", "l2" if args.l2 > 0.0 else "",
+             f"lognum{args.lognum}" if args.lognum > 0 else "", "sgd" if EPOCHS == 1 else "", f"alpha{args.alpha}"]
     return f"runs/{args.dataset}/" + ".".join([part for part in parts if part])
 
 
@@ -281,7 +285,7 @@ def get_crp_attribution(model: nn.Module, sample_dataset: Dataset, layer: str):
     return contributions
 
 
-def compute_features_weights_per_client(server_model: FlexModel, _, subsamples: Dataset):
+def compute_features_weights_per_client(server_model: FlexModel, _, subsamples: Dataset, alpha: float = args.alpha):
     print("Running round CRP")
     model = server_model["model"]
     weights = server_model["weights"]
@@ -304,6 +308,7 @@ def compute_features_weights_per_client(server_model: FlexModel, _, subsamples: 
         # Order matters, we need to keep the order of the clients
         label_probs = torch.tensor([clients_probs[client_id][label] for client_id in range((len(weights)))],
                                    dtype=torch.float32).to(device)
+        label_probs = torch.where(label_probs > alpha, label_probs, float("-inf")) # softmax(-inf) = 0
         sample_weight = torch.softmax(label_probs.flatten(), dim=0).view(*label_probs.shape)  # (n_clients, n_samples)
         label_relevances = torch.stack([clients_relevances[client_id][label] for client_id in range(len(weights))]).to(
             device)  # (n_clients, n_samples, n_features)
@@ -359,7 +364,7 @@ def run_server_pool():
     global flex_dataset
     global test_data
     flex_dataset["server"] = test_data
-    pool = FlexPool.client_server_pool(flex_dataset, build_server_model, dataset=args.dataset)
+    pool = FlexPool.client_server_pool(flex_dataset, build_server_model, dataset=args.dataset, l2_factor=args.l2)
     train_base(pool, n_rounds=args.rounds)
 
 
