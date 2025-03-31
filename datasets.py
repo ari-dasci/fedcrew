@@ -1,4 +1,3 @@
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, Tuple
 
@@ -76,24 +75,6 @@ def _imagenet():
     assert isinstance(flex_dataset, FedDataset)
     return flex_dataset, test_data
 
-def _balance_dataset(dataset: Dataset):
-    from random import shuffle, seed
-    seed(0)
-
-    index_label = defaultdict(list)
-    assert dataset.y_data is not None, "Dataset must have labels"
-    for i, y in enumerate(dataset.y_data):
-        index_label[int(y)].append(i)
-
-    min_size = min(len(v) for v in index_label.values())
-    for k, v in index_label.items():
-        shuffle(v)
-        index_label[k] = v
-
-    new_indices = [indices[:min_size] for indices in index_label.values()]
-    new_indices = [i for indices in new_indices for i in indices]
-    return dataset[new_indices]
-
 
 def _waterbirds():
     from utils.waterbirds import WaterbirdsDataset
@@ -109,7 +90,6 @@ def _waterbirds():
         return Dataset(X_data=dataset.X_data, y_data=y_data)
 
     flex_dataset = select_label(flex_dataset)
-    flex_dataset = _balance_dataset(flex_dataset)
 
     config = FedDatasetConfig(seed=0)
     config.replacement = False
@@ -120,7 +100,7 @@ def _waterbirds():
 
 
 DATASET_CONFIG = {"celeba": DatasetConfig(loader=_celeba_non_iid), "cifar_10": DatasetConfig(loader=_cifar_10_iid),
-    "imagenet": DatasetConfig(loader=_imagenet), "waterbirds": DatasetConfig(loader=_waterbirds), }
+                  "imagenet": DatasetConfig(loader=_imagenet), "waterbirds": DatasetConfig(loader=_waterbirds), }
 
 
 def get_dataset(dataset: str) -> Tuple[FedDataset, Dataset]:
