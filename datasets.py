@@ -33,7 +33,7 @@ def _celeba_non_iid():
 
     flex_dataset = flex_dataset.apply(select_label)
     test_data = select_label(test_data)
-    return flex_dataset, test_data
+    return flex_dataset, test_data, []
 
 
 def _cifar_10_iid():
@@ -56,7 +56,7 @@ def _cifar_10_iid():
             del flex_dataset[k]
 
     assert isinstance(flex_dataset, FedDataset)
-    return flex_dataset, test_data
+    return flex_dataset, test_data, []
 
 
 def _imagenet():
@@ -73,30 +73,49 @@ def _imagenet():
     flex_dataset = FedDataDistribution.from_config(flex_dataset, config)
 
     assert isinstance(flex_dataset, FedDataset)
-    return flex_dataset, test_data
+    return flex_dataset, test_data, []
 
 
 def _waterbirds():
+    import dill as pickle
     from utils.waterbirds import WaterbirdsDataset
-    train_data = WaterbirdsDataset(train=True)
-    test_data = WaterbirdsDataset(train=False)
-    flex_dataset = Dataset.from_torchvision_dataset(train_data)
-    test_data = Dataset.from_torchvision_dataset(test_data)
 
-    def select_label(dataset: Dataset):
-        label_index = 0
-        y_data = [y[0] for y in dataset.y_data]
-        y_data = LazyIndexable(y_data, len(y_data))
-        return Dataset(X_data=dataset.X_data, y_data=y_data)
+    try:
+        with open("waterbirds_fed.pck", "rb") as f:
+            flex_dataset = pickle.load(f)
+        with open("waterbirds_test.pck", "rb") as f:
+            test_data = pickle.load(f)
+        with open("waterbirds_indices.pck", "rb") as f:
+            must_have_indices = pickle.load(f)
+    except FileNotFoundError:
+        print("Creating dataset Waterbirds")
+        train_data = WaterbirdsDataset(train=True)
+        test_data = WaterbirdsDataset(train=False)
+        flex_dataset = Dataset.from_torchvision_dataset(train_data)
+        test_data = Dataset.from_torchvision_dataset(test_data)
 
-    flex_dataset = select_label(flex_dataset)
+        partition_indices, partition_details = train_data.get_partitions(100)
+        must_have_indices = []
+        for v in partition_details.values():
+            must_have_indices.append(v[0])
 
-    config = FedDatasetConfig(seed=0)
-    config.replacement = False
-    config.n_nodes = 100
 
-    flex_dataset = FedDataDistribution.from_config(flex_dataset, config)
-    return flex_dataset, test_data
+        def select_label(dataset: Dataset):
+            label_index = 0
+            y_data = [y[0] for y in dataset.y_data]
+            y_data = LazyIndexable(y_data, len(y_data))
+            return Dataset(X_data=dataset.X_data, y_data=y_data)
+
+        flex_dataset = select_label(flex_dataset)
+
+        config = FedDatasetConfig(indexes_per_node=partition_indices, n_nodes=len(partition_indices), seed=0)
+        flex_dataset = FedDataDistribution.from_config(flex_dataset, config)
+
+        pickle.dump(flex_dataset, open("waterbirds_fed.pck", "wb"))
+        pickle.dump(test_data, open("waterbirds_test.pck", "wb"))
+        print("Waterbirds dataset created")
+
+    return flex_dataset, test_data, must_have_indices
 
 
 DATASET_CONFIG = {"celeba": DatasetConfig(loader=_celeba_non_iid), "cifar_10": DatasetConfig(loader=_cifar_10_iid),

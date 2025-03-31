@@ -64,7 +64,7 @@ def get_summary_writer_filename(args):
 
 writer = SummaryWriter(get_summary_writer_filename(args)) if not args.no_log else None
 
-flex_dataset, test_data = get_dataset(args.dataset)
+flex_dataset, test_data, must_have_indices = get_dataset(args.dataset)
 client_ids = list(flex_dataset.keys())
 
 print(f"Running options: {args}")
@@ -319,14 +319,21 @@ def train_base(pool: FlexPool, n_rounds=100):
     clients = pool.clients
     subsamples: Dataset = pool.servers.map(select_subsample_server_data, k=args.samples)[0]
 
+    must_have_clients = clients.select(lambda id, _: id in must_have_indices)
+    other_clients = clients.select(lambda id, _: id not in must_have_indices)
+
     for i in tqdm(range(n_rounds)):
         global round_number
         round_number = i
-        selected_clients = clients.select(CLIENTS_PER_ROUND)
+
+        selected_clients = other_clients.select(CLIENTS_PER_ROUND - len(must_have_clients))
         pool.servers.map(copy_server_model_to_clients, selected_clients)
+        pool.servers.map(copy_server_model_to_clients, must_have_clients)
 
         selected_clients.map(train)
+        must_have_clients.map(train)
         pool.aggregators.map(get_clients_weights, selected_clients)
+        pool.aggregators.map(get_clients_weights, must_have_clients)
         selected_clients.map(clean_up_models)
 
         ponderation_tensor = pool.servers.map(compute_features_weights_per_client, subsamples=subsamples)[
