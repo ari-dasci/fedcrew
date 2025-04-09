@@ -119,7 +119,7 @@ def _waterbirds():
 
 
 DATASET_CONFIG = {"celeba": DatasetConfig(loader=_celeba_non_iid), "cifar_10": DatasetConfig(loader=_cifar_10_iid),
-                  "imagenet": DatasetConfig(loader=_imagenet), "waterbirds": DatasetConfig(loader=_waterbirds), }
+                  "imagenet": DatasetConfig(loader=_imagenet), "waterbirds": DatasetConfig(loader=_waterbirds), "waterbirds_multi": DatasetConfig(loader=_waterbirds)}
 
 
 def get_dataset(dataset: str) -> Tuple[FedDataset, Dataset]:

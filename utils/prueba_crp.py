@@ -57,7 +57,7 @@ if __name__ == '__main__':
     preprocess_transform = transforms.Compose(
         [transforms.ToTensor(), transforms.Resize((256, 256)), transforms.CenterCrop((224, 224))])
     plt.imsave('original_image.png', preprocess_transform(img_1).cpu().numpy().transpose(1, 2, 0))
-    final_transforms = transforms.Compose([preprocess_transform, ResNet18_Weights.DEFAULT.transforms()])
+    final_transforms = transforms.Compose([preprocess_transform, ResNet18_Weights.DEFAULT.data_transforms()])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)

@@ -3,8 +3,13 @@ from typing import List
 
 import torch
 from flex.model import FlexModel
-from flex.pool import init_server_model, deploy_server_model, set_aggregated_weights, collect_clients_weights, \
-    aggregate_weights
+from flex.pool import (
+    init_server_model,
+    deploy_server_model,
+    set_aggregated_weights,
+    collect_clients_weights,
+    aggregate_weights,
+)
 
 from models import get_model
 
@@ -26,8 +31,12 @@ def copy_server_model_to_clients(server_flex_model: FlexModel):
     new_flex_model["model"] = copy.deepcopy(server_flex_model["model"])
     new_flex_model["server_model"] = copy.deepcopy(server_flex_model["model"])
     new_flex_model["criterion"] = copy.deepcopy(server_flex_model["criterion"])
-    new_flex_model["optimizer_func"] = copy.deepcopy(server_flex_model["optimizer_func"])
-    new_flex_model["optimizer_kwargs"] = copy.deepcopy(server_flex_model["optimizer_kwargs"])
+    new_flex_model["optimizer_func"] = copy.deepcopy(
+        server_flex_model["optimizer_func"]
+    )
+    new_flex_model["optimizer_kwargs"] = copy.deepcopy(
+        server_flex_model["optimizer_kwargs"]
+    )
     return new_flex_model
 
 
@@ -47,7 +56,10 @@ def get_clients_weights(client_flex_model: FlexModel):
     server_dict = client_flex_model["server_model"].state_dict()
     dev = [weight_dict[name] for name in weight_dict][0].get_device()
     dev = "cpu" if dev == -1 else "cuda"
-    return [(weight_dict[name] - server_dict[name].to(dev)).type(torch.float) for name in weight_dict]
+    return [
+        (weight_dict[name] - server_dict[name].to(dev)).type(torch.float)
+        for name in weight_dict
+    ]
 
 
 def clean_up_models(client_model: FlexModel, _):
@@ -58,10 +70,15 @@ def clean_up_models(client_model: FlexModel, _):
 
 
 @aggregate_weights
-def causal_weighted_average(weights: List[List[torch.Tensor]], ponderation_tensor: torch.Tensor, bias=False):
+def causal_weighted_average(
+    weights: List[List[torch.Tensor]], ponderation_tensor: torch.Tensor, bias=False
+):
     transposed_weights = list(zip(*weights))
     num_non_final_layers = len(transposed_weights) - (2 if bias else 1)
-    aggregated_weights = [torch.stack(layer_weights).mean(dim=0) for layer_weights in transposed_weights[:num_non_final_layers]]
+    aggregated_weights = [
+        torch.stack(layer_weights).mean(dim=0)
+        for layer_weights in transposed_weights[:num_non_final_layers]
+    ]
 
     # Aggregate the final layer
     if bias:
@@ -71,11 +88,24 @@ def causal_weighted_average(weights: List[List[torch.Tensor]], ponderation_tenso
     # ponderation_tensor has shape (n_labels, n_clients, n_features) all ordered as the same way as weights
     # stacked weights will have shape (n_clients, n_labels, n_features)
     stacked_weights = torch.stack(transposed_weights[num_non_final_layers], dim=0)
-    ponderation_tensor = torch.transpose(ponderation_tensor, 0, 1) # (n_clients, n_labels, n_features)
-    assert stacked_weights.shape == ponderation_tensor.shape, "Fatal error :(, ponderation_tensor and the weights of last layer doesnt have same shape"
+    ponderation_tensor = torch.transpose(
+        ponderation_tensor, 0, 1
+    )  # (n_clients, n_labels, n_features)
+    assert (
+        stacked_weights.shape == ponderation_tensor.shape
+    ), f"Fatal error :(, ponderation_tensor and the weights of last layer doesnt have same shape {ponderation_tensor.shape=} != {stacked_weights.shape=}"
 
     ponderated_weights = (stacked_weights * ponderation_tensor).sum(dim=0)
+    # Normalize
+    labels_norms = torch.linalg.vector_norm(ponderated_weights, dim=1)  # (n_labels)
+    mean_norm = torch.mean(labels_norms)
+    coef = torch.sqrt(mean_norm) / torch.sqrt(labels_norms)
+    ponderated_weights = ponderated_weights * coef.unsqueeze(1)
+
     aggregated_weights.append(ponderated_weights)
 
-
     return aggregated_weights
+
+def scalable_softmax(input: torch.Tensor, dim=-1):
+    n = input.size(dim=dim)
+    return torch.softmax(input * torch.log(n), dim=dim)

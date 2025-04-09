@@ -21,17 +21,38 @@ def _get_resnet(num_classes: int = 10, pretraining=False):
     return model
 
 
-DATASET_CONFIG = {"celeba": DatasetConfig(num_classes=2, transforms=lambda: transforms.Compose(
-    [transforms.ToPILImage(), ResNet18_Weights.DEFAULT.transforms()]), model_factory=lambda: _get_resnet(num_classes=2)),
-                  "waterbirds": DatasetConfig(num_classes=2, transforms=lambda: ResNet18_Weights.DEFAULT.transforms(),
-                                              model_factory=lambda: _get_resnet(num_classes=2)),
-                  "default": DatasetConfig(num_classes=10, transforms=lambda: ResNet18_Weights.DEFAULT.transforms(),
-                                           model_factory=lambda: _get_resnet(num_classes=10))}
+DATASET_CONFIG = {
+    "celeba": DatasetConfig(
+        num_classes=2,
+        transforms=lambda: transforms.Compose(
+            [transforms.ToPILImage(), ResNet18_Weights.DEFAULT.transforms()]
+        ),
+        model_factory=lambda: _get_resnet(num_classes=2),
+    ),
+    "waterbirds": DatasetConfig(
+        num_classes=2,
+        transforms=lambda: ResNet18_Weights.DEFAULT.transforms(),
+        model_factory=lambda: _get_resnet(num_classes=2),
+    ),
+    "waterbirds_multi": DatasetConfig(
+        num_classes=2,
+        transforms=lambda: ResNet18_Weights.DEFAULT.transforms(),
+        model_factory=lambda: AutoencoderMultitask(num_classes=2),
+    ),
+    "default": DatasetConfig(
+        num_classes=10,
+        transforms=lambda: ResNet18_Weights.DEFAULT.transforms(),
+        model_factory=lambda: _get_resnet(num_classes=10),
+    ),
+}
+
 
 def fetch_relevance_layer(model: nn.Module) -> str:
     if isinstance(model, CelebaNet):
         return "conv4"
-    return "layer4.1.conv2" # Resnet-18
+    if isinstance(model, AutoencoderMultitask):
+        return "encoder.12"
+    return "layer4.1.conv2"  # Resnet-18
 
 
 def get_model(dataset: str):
@@ -77,3 +98,71 @@ class CelebaNet(nn.Module):
         x = F.max_pool2d(x, 2, 2)
         x = torch.flatten(x, 1)
         return self.fc(x)
+
+
+class AutoencoderMultitask(nn.Module):
+    def __init__(self, num_classes=2):
+        super().__init__()
+
+        # Codificador
+        self.encoder = nn.Sequential(
+            # 224x224 -> 112x112
+            nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(p=0.3),
+            # 112x112 -> 56x56
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(p=0.3),
+            # 56x56 -> 28x28
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(p=0.3),
+            # 28x28 -> 14x14
+            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(p=0.3),
+        )
+
+        # Decodificador
+        self.decoder = nn.Sequential(
+            # 14x14 -> 28x28
+            nn.ConvTranspose2d(
+                256, 128, kernel_size=3, stride=2, padding=1, output_padding=1
+            ),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(p=0.3),
+            # 28x28 -> 56x56
+            nn.ConvTranspose2d(
+                128, 64, kernel_size=3, stride=2, padding=1, output_padding=1
+            ),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(p=0.3),
+            # 56x56 -> 112x112
+            nn.ConvTranspose2d(
+                64, 32, kernel_size=3, stride=2, padding=1, output_padding=1
+            ),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(p=0.3),
+            # 112x112 -> 224x224
+            nn.ConvTranspose2d(
+                32, 3, kernel_size=3, stride=2, padding=1, output_padding=1
+            ),
+            nn.Sigmoid(),
+        )
+
+        self.fc = nn.Linear(256 * 14 * 14, num_classes, bias=False)
+
+    def forward(self, x):
+        encoded = self.encoder(x)
+        decoded = self.decoder(encoded)
+        y = torch.flatten(encoded, 1)
+        y = self.fc(y)
+        return decoded, y
