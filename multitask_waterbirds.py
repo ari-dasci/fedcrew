@@ -139,7 +139,7 @@ def get_summary_writer_filename(args):
 
 writer = SummaryWriter(get_summary_writer_filename(args)) if not args.no_log else None
 
-flex_dataset, test_data, must_have_indices = get_dataset("waterbirds")
+flex_dataset, test_data, must_have_indices = get_dataset("waterbirds" if args.dataset == "waterbirds_multi" else args.dataset)
 client_ids = list(flex_dataset.keys())
 
 print(f"Running options: {args}")
@@ -148,8 +148,10 @@ data_transforms = get_transforms(args.dataset)
 
 
 def select_waterbirds_label(dataset: Dataset):
+    if "waterbirds" not in args.dataset:
+        return dataset
     label_index = 0
-    y_data = [y[0] for y in dataset.y_data]
+    y_data = [y[label_index] for y in dataset.y_data]
     y_data = LazyIndexable(y_data, len(y_data))
     return Dataset(X_data=dataset.X_data, y_data=y_data)
 
@@ -184,8 +186,9 @@ def train(client_flex_model: FlexModel, client_data: Dataset):
             optimizer.step()
 
 
-def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset):
-    test_data = select_waterbirds_label(test_data)
+def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset, is_server = True):
+    if is_server:
+        test_data = select_waterbirds_label(test_data)
 
     model = server_flex_model["model"]
     model.eval()
@@ -193,7 +196,6 @@ def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset):
     total_count = 0
     model = model.to(device)
     criterion = server_flex_model["criterion"]
-    # get test data as a torchvision object
     test_dataset = test_data.to_torchvision_dataset(transform=data_transforms)
     test_dataloader = DataLoader(
         test_dataset, batch_size=args.batchsize, shuffle=True, pin_memory=False
@@ -206,10 +208,33 @@ def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset):
         for data, target in test_dataloader:
             total_count += target.size(0)
             data, target = data.to(device), target.to(device)
+            
+            # Debug prints
+            if torch.isnan(data).any():
+                print("NaN found in input data")
+            
             reconstruction, output = model(data)
+            
+            # Check outputs
+            if torch.isnan(reconstruction).any():
+                print("NaN found in reconstruction")
+            if torch.isnan(output).any():
+                print("NaN found in output")
+                print("Output:", output)
+                print("Model_fc_weights:", model.fc.weight)
+                assert False, "Output contains NaN values"
+                
             reconstruction_loss = torch.nn.functional.mse_loss(reconstruction, data)
+            if torch.isnan(reconstruction_loss):
+                print("NaN found in reconstruction loss")
+                
+            loss = criterion(output, target)
+            if torch.isnan(loss):
+                print("NaN found in classification loss")
+            
             reconstruction_losses.append(reconstruction_loss.item())
-            losses.append(criterion(output, target).item())
+            losses.append(loss.item())
+            
             pred = output.data.max(1, keepdim=True)[1]
             test_acc += pred.eq(target.data.view_as(pred)).long().cpu().sum().item()
 
@@ -218,9 +243,9 @@ def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset):
                 confusion_matrix[t.long(), p.long()] += 1
 
     confusion_matrix = confusion_matrix.cpu().numpy()
-    test_loss = sum(losses) / len(losses)
+    test_loss = sum(losses) / len(losses) if losses else float('nan')
     test_acc /= total_count
-    test_rec = sum(reconstruction_losses) / len(reconstruction_losses)
+    test_rec = sum(reconstruction_losses) / len(reconstruction_losses) if reconstruction_losses else float('nan')
 
     return test_loss, test_acc, confusion_matrix, test_rec
 
@@ -370,8 +395,7 @@ def get_crp_attribution(model: nn.Module, sample_dataset: Dataset, layer: str):
         rel_c = rel_c.flatten()
         rel_c_min = torch.min(rel_c)
         rel_c_max = torch.max(rel_c)
-        rel_c = scalable_softmax(rel_c)
-        # rel_c = (rel_c - rel_c_min) / (rel_c_max - rel_c_min)
+        rel_c = (rel_c - rel_c_min) / (rel_c_max - rel_c_min)
         if isinstance(label, torch.Tensor):
             label = label.item()
         if label not in contributions:
@@ -417,12 +441,10 @@ def compute_features_weights_per_client(
         label_probs = torch.where(
             label_probs > alpha, label_probs, torch.finfo().min
         )  # softmax(-inf) = 0
-        # sample_weight = torch.softmax(label_probs.flatten(), dim=0).view(
-        #     *label_probs.shape
-        # )  # (n_clients, n_samples)
-        sample_weight = scalable_softmax(label_probs.flatten(), dim=0).view(
+        sample_weight = torch.softmax(label_probs.flatten(), dim=0).view(
             *label_probs.shape
         )  # (n_clients, n_samples)
+        sample_weight = torch.where(torch.isnan(sample_weight), 0.0, sample_weight)
         label_relevances = torch.stack(
             [clients_relevances[client_id][label] for client_id in range(len(weights))]
         ).to(
@@ -460,6 +482,45 @@ def train_base(pool: FlexPool, n_rounds=100):
 
         selected_clients.map(train)
         must_have_clients.map(train)
+
+        if (round_number + 1) % 5 == 0  and writer:
+            client_metrics = selected_clients.map(obtain_metrics, is_server=False) + must_have_clients.map(obtain_metrics, is_server=False)
+            losses = [loss for loss, _, _, _ in client_metrics]
+            accs = [acc for _, acc, _, _ in client_metrics]
+            recs = [rec for _, rec, _, rec in client_metrics]
+
+            avg_loss = sum(losses) / len(losses)
+            avg_acc = sum(accs) / len(accs)
+            avg_rec = sum(recs) / len(recs)
+
+            median_loss = np.median(losses)
+            median_acc = np.median(accs)
+            median_rec = np.median(recs)
+
+            max_loss = max(losses)
+            max_acc = max(accs)
+            max_rec = max(recs)
+
+            min_loss = min(losses)
+            min_acc = min(accs)
+            min_rec = min(recs)
+
+            writer.add_scalar("Average Client Loss", avg_loss, round_number)
+            writer.add_scalar("Median Client Loss", median_loss, round_number)
+            writer.add_scalar("Max Client Loss", max_loss, round_number)
+            writer.add_scalar("Min Client Loss", min_loss, round_number)
+            writer.add_scalar("Average Client Accuracy", avg_acc, round_number)
+            writer.add_scalar("Median Client Accuracy", median_acc, round_number)
+            writer.add_scalar("Max Client Accuracy", max_acc, round_number)
+            writer.add_scalar("Min Client Accuracy", min_acc, round_number)
+            writer.add_scalar("Average Client Reconstruction Loss", avg_rec, round_number)
+            writer.add_scalar("Median Client Reconstruction Loss", median_rec, round_number)
+            writer.add_scalar("Max Client Reconstruction Loss", max_rec, round_number)
+            writer.add_scalar("Min Client Reconstruction Loss", min_rec, round_number)
+
+            
+
+        
         pool.aggregators.map(get_clients_weights, selected_clients)
         pool.aggregators.map(get_clients_weights, must_have_clients)
         selected_clients.map(clean_up_models)

@@ -108,4 +108,5 @@ def causal_weighted_average(
 
 def scalable_softmax(input: torch.Tensor, dim=-1):
     n = input.size(dim=dim)
+    n = torch.tensor(n, device="cuda")
     return torch.softmax(input * torch.log(n), dim=dim)

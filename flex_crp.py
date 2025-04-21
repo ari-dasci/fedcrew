@@ -1,7 +1,6 @@
 import argparse
-import os
 from copy import deepcopy
-from typing import List, Tuple
+from typing import List
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,7 +28,7 @@ from utils.flex_boilerplate import (
     set_aggregated_weights_to_server,
     get_clients_weights,
     clean_up_models,
-    causal_weighted_average, scalable_softmax,
+    causal_weighted_average,
 )
 from utils.prueba_crp import extract_heatmap
 
@@ -155,8 +154,8 @@ def train(client_flex_model: FlexModel, client_data: Dataset, l1_factor=args.l1)
             optimizer.step()
 
 
-def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset):
-    if "waterbirds" in args.dataset:
+def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset, is_server=True):
+    if "waterbirds" in args.dataset and is_server:
         test_data = select_waterbirds_label(test_data)
 
     model = server_flex_model["model"]
@@ -358,8 +357,7 @@ def get_crp_attribution(model: nn.Module, sample_dataset: Dataset, layer: str):
         rel_c = rel_c[0]
         rel_c_min = torch.min(rel_c)
         rel_c_max = torch.max(rel_c)
-        rel_c = scalable_softmax(rel_c)
-        # rel_c = (rel_c - rel_c_min) / (rel_c_max - rel_c_min)
+        rel_c = (rel_c - rel_c_min) / (rel_c_max - rel_c_min)
         if isinstance(label, torch.Tensor):
             label = label.item()
         if label not in contributions:
@@ -405,10 +403,7 @@ def compute_features_weights_per_client(
         label_probs = torch.where(
             label_probs > alpha, label_probs, torch.finfo().min
         )  # softmax(-inf) = 0
-        # sample_weight = torch.softmax(label_probs.flatten(), dim=0).view(
-        #     *label_probs.shape
-        # )  # (n_clients, n_samples)
-        sample_weight = scalable_softmax(label_probs.flatten(), dim=0).view(
+        sample_weight = torch.softmax(label_probs.flatten(), dim=0).view(
             *label_probs.shape
         )  # (n_clients, n_samples)
         label_relevances = torch.stack(
@@ -448,6 +443,33 @@ def train_base(pool: FlexPool, n_rounds=100):
 
         selected_clients.map(train)
         must_have_clients.map(train)
+        if (round_number + 1) % 5 == 0 and writer:
+            client_metrics = selected_clients.map(obtain_metrics, is_server=False) + must_have_clients.map(
+                obtain_metrics, is_server=False
+            )
+            losses = [loss for loss, _, _ in client_metrics]
+            accs = [acc for _, acc, _ in client_metrics]
+
+            if losses: # Ensure metrics were collected
+                avg_loss = sum(losses) / len(losses)
+                median_loss = np.median(losses)
+                max_loss = max(losses)
+                min_loss = min(losses)
+                writer.add_scalar("Average Client Loss", avg_loss, round_number)
+                writer.add_scalar("Median Client Loss", median_loss, round_number)
+                writer.add_scalar("Max Client Loss", max_loss, round_number)
+                writer.add_scalar("Min Client Loss", min_loss, round_number)
+
+            if accs: # Ensure metrics were collected
+                avg_acc = sum(accs) / len(accs)
+                median_acc = np.median(accs)
+                max_acc = max(accs)
+                min_acc = min(accs)
+                writer.add_scalar("Average Client Accuracy", avg_acc, round_number)
+                writer.add_scalar("Median Client Accuracy", median_acc, round_number)
+                writer.add_scalar("Max Client Accuracy", max_acc, round_number)
+                writer.add_scalar("Min Client Accuracy", min_acc, round_number)
+
         pool.aggregators.map(get_clients_weights, selected_clients)
         pool.aggregators.map(get_clients_weights, must_have_clients)
         selected_clients.map(clean_up_models)

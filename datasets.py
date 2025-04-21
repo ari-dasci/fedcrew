@@ -94,7 +94,7 @@ def _waterbirds():
         flex_dataset = Dataset.from_torchvision_dataset(train_data)
         test_data = Dataset.from_torchvision_dataset(test_data)
 
-        partition_indices, partition_details = train_data.get_partitions(100)
+        partition_indices, partition_details = train_data.get_partitions(25)
         must_have_indices = []
         for v in partition_details.values():
             must_have_indices.append(v[0])
