@@ -1,7 +1,13 @@
 from dataclasses import dataclass
 from typing import Callable, Tuple
 
-from flex.data import Dataset, FedDataDistribution, FedDataset, FedDatasetConfig, LazyIndexable
+from flex.data import (
+    Dataset,
+    FedDataDistribution,
+    FedDataset,
+    FedDatasetConfig,
+    LazyIndexable,
+)
 
 
 @dataclass
@@ -12,6 +18,7 @@ class DatasetConfig:
 def _celeba_non_iid():
     import dill as pickle
     from flex.datasets.federated_datasets import federated_celeba
+
     try:
         with open("celeba_fed.pck", "rb") as f:
             flex_dataset = pickle.load(f)
@@ -26,7 +33,11 @@ def _celeba_non_iid():
 
     def select_label(dataset: Dataset):
         smiling_index = -9
-        y_data = ([y[1] for y in dataset.y_data] if isinstance(dataset.y_data[0], tuple) else dataset.y_data)
+        y_data = (
+            [y[1] for y in dataset.y_data]
+            if isinstance(dataset.y_data[0], tuple)
+            else dataset.y_data
+        )
         y_data = [y[smiling_index] for y in y_data]
         y_data = LazyIndexable(y_data, len(y_data))
         return Dataset(X_data=dataset.X_data, y_data=y_data)
@@ -38,6 +49,7 @@ def _celeba_non_iid():
 
 def _cifar_10_iid():
     from torchvision.datasets import CIFAR10
+
     train_data = CIFAR10(root="../data", train=True, download=True, transform=None)
     test_data = CIFAR10(root="../data", train=False, download=True, transform=None)
     flex_dataset = Dataset.from_torchvision_dataset(train_data)
@@ -61,6 +73,7 @@ def _cifar_10_iid():
 
 def _imagenet():
     from imagenetsubset import load_tiny_imagenet
+
     train_data = load_tiny_imagenet(train=True)
     test_data = load_tiny_imagenet(train=False)
     flex_dataset = Dataset.from_torchvision_dataset(train_data)
@@ -99,7 +112,6 @@ def _waterbirds():
         for v in partition_details.values():
             must_have_indices.append(v[0])
 
-
         def select_label(dataset: Dataset):
             y_data = [y[0] for y in dataset.y_data]
             y_data = LazyIndexable(y_data, len(y_data))
@@ -107,7 +119,9 @@ def _waterbirds():
 
         flex_dataset = select_label(flex_dataset)
 
-        config = FedDatasetConfig(indexes_per_node=partition_indices, n_nodes=len(partition_indices), seed=0)
+        config = FedDatasetConfig(
+            indexes_per_node=partition_indices, n_nodes=len(partition_indices), seed=0
+        )
         flex_dataset = FedDataDistribution.from_config(flex_dataset, config)
 
         pickle.dump(flex_dataset, open("waterbirds_fed.pck", "wb"))
@@ -117,8 +131,13 @@ def _waterbirds():
     return flex_dataset, test_data, must_have_indices
 
 
-DATASET_CONFIG = {"celeba": DatasetConfig(loader=_celeba_non_iid), "cifar_10": DatasetConfig(loader=_cifar_10_iid),
-                  "imagenet": DatasetConfig(loader=_imagenet), "waterbirds": DatasetConfig(loader=_waterbirds), "waterbirds_multi": DatasetConfig(loader=_waterbirds)}
+DATASET_CONFIG = {
+    "celeba": DatasetConfig(loader=_celeba_non_iid),
+    "cifar_10": DatasetConfig(loader=_cifar_10_iid),
+    "imagenet": DatasetConfig(loader=_imagenet),
+    "waterbirds": DatasetConfig(loader=_waterbirds),
+    "waterbirds_multi": DatasetConfig(loader=_waterbirds),
+}
 
 
 def get_dataset(dataset: str) -> Tuple[FedDataset, Dataset]:

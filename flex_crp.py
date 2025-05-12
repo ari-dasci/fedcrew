@@ -241,9 +241,9 @@ def load_client_model(
     :param client_id: Index of client
     :return: A copy of the original model with the weights of the client_id-th client loaded
     """
-    assert client_id < len(
-        collected_weights
-    ), f"Client ID out of bounds, {client_id} >= {len(collected_weights)}"
+    assert client_id < len(collected_weights), (
+        f"Client ID out of bounds, {client_id} >= {len(collected_weights)}"
+    )
     client_weights = collected_weights[client_id]
     new_model = deepcopy(original_model).to(device)
     with torch.no_grad():
@@ -407,9 +407,7 @@ def compute_features_weights_per_client(
         )  # (n_clients, n_samples)
         label_relevances = torch.stack(
             [clients_relevances[client_id][label] for client_id in range(len(weights))]
-        ).to(
-            device
-        )  # (n_clients, n_samples, n_features)
+        ).to(device)  # (n_clients, n_samples, n_features)
 
         weights_features_clients = torch.sum(
             label_relevances * sample_weight.unsqueeze(-1), dim=1
@@ -443,13 +441,13 @@ def train_base(pool: FlexPool, n_rounds=100):
         selected_clients.map(train)
         must_have_clients.map(train)
         if (round_number + 1) % 5 == 0 and writer:
-            client_metrics = selected_clients.map(obtain_metrics, is_server=False) + must_have_clients.map(
+            client_metrics = selected_clients.map(
                 obtain_metrics, is_server=False
-            )
+            ) + must_have_clients.map(obtain_metrics, is_server=False)
             losses = [loss for loss, _, _ in client_metrics]
             accs = [acc for _, acc, _ in client_metrics]
 
-            if losses: # Ensure metrics were collected
+            if losses:  # Ensure metrics were collected
                 avg_loss = sum(losses) / len(losses)
                 median_loss = np.median(losses)
                 max_loss = max(losses)
@@ -459,7 +457,7 @@ def train_base(pool: FlexPool, n_rounds=100):
                 writer.add_scalar("Max Client Loss", max_loss, round_number)
                 writer.add_scalar("Min Client Loss", min_loss, round_number)
 
-            if accs: # Ensure metrics were collected
+            if accs:  # Ensure metrics were collected
                 avg_acc = sum(accs) / len(accs)
                 median_acc = np.median(accs)
                 max_acc = max(accs)

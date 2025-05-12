@@ -49,8 +49,11 @@ def set_aggregated_weights_to_server(server_flex_model: FlexModel, aggregated_we
         for layer_key, new in zip(weight_dict, aggregated_weights):
             weight_dict[layer_key].copy_(weight_dict[layer_key].to(dev) + new)
 
+
 @set_aggregated_weights
-def set_aggregated_fc_weights_to_server(server_flex_model: FlexModel, aggregated_weights):
+def set_aggregated_fc_weights_to_server(
+    server_flex_model: FlexModel, aggregated_weights
+):
     dev = aggregated_weights[0].get_device()
     dev = "cpu" if dev == -1 else "cuda" + (f":{dev}" if dev > 0 else "")
     with torch.no_grad():
@@ -70,6 +73,7 @@ def get_clients_weights(client_flex_model: FlexModel):
         for name in weight_dict
     ]
 
+
 @collect_clients_weights
 def get_clients_fc_weights(client_flex_model: FlexModel):
     weight_dict = client_flex_model["model"].state_dict()
@@ -78,15 +82,17 @@ def get_clients_fc_weights(client_flex_model: FlexModel):
     dev = "cpu" if dev == -1 else "cuda"
     return [
         (weight_dict[name] - server_dict[name].to(dev)).type(torch.float)
-        for name in weight_dict if "fc" in name
+        for name in weight_dict
+        if "fc" in name
     ]
+
 
 def create_transfer_model(server_flex_model: FlexModel, _):
     model = server_flex_model["model"]
     for name, param in model.named_parameters():
         if "fc" not in name:
             param.requires_grad = False
-    
+
     # reset fc layer
     model.fc.reset_parameters()
 
@@ -120,9 +126,9 @@ def causal_weighted_average(
     ponderation_tensor = torch.transpose(
         ponderation_tensor, 0, 1
     )  # (n_clients, n_labels, n_features)
-    assert (
-        stacked_weights.shape == ponderation_tensor.shape
-    ), f"Fatal error :(, ponderation_tensor and the weights of last layer doesnt have same shape {ponderation_tensor.shape=} != {stacked_weights.shape=}"
+    assert stacked_weights.shape == ponderation_tensor.shape, (
+        f"Fatal error :(, ponderation_tensor and the weights of last layer doesnt have same shape {ponderation_tensor.shape=} != {stacked_weights.shape=}"
+    )
 
     ponderated_weights = (stacked_weights * ponderation_tensor).sum(dim=0)
     # Normalize
@@ -134,6 +140,7 @@ def causal_weighted_average(
     aggregated_weights.append(ponderated_weights)
 
     return aggregated_weights
+
 
 def scalable_softmax(input: torch.Tensor, dim=-1):
     n = input.size(dim=dim)

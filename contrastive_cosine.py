@@ -307,9 +307,9 @@ def load_client_model(
     :param client_id: Index of client
     :return: A copy of the original model with the weights of the client_id-th client loaded
     """
-    assert client_id < len(
-        collected_weights
-    ), f"Client ID out of bounds, {client_id} >= {len(collected_weights)}"
+    assert client_id < len(collected_weights), (
+        f"Client ID out of bounds, {client_id} >= {len(collected_weights)}"
+    )
     client_weights = collected_weights[client_id]
     new_model = deepcopy(original_model).to(device)
     with torch.no_grad():
@@ -470,9 +470,7 @@ def compute_features_weights_per_client(
         )  # (n_clients, n_samples)
         label_relevances = torch.stack(
             [clients_relevances[client_id][label] for client_id in range(len(weights))]
-        ).to(
-            device
-        )  # (n_clients, n_samples, n_features)
+        ).to(device)  # (n_clients, n_samples, n_features)
 
         weights_features_clients = torch.sum(
             label_relevances * sample_weight.unsqueeze(-1), dim=1

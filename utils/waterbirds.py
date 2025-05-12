@@ -45,7 +45,11 @@ def create_partitions(df: pd.DataFrame, n_parts: int):
              (place, y) to the list of indices in the corresponding partition that have that (place, y) pair.
     """
     # Group indices by the combination (y, place)
-    groups = {(y, p): df[(df['y'] == y) & (df['place'] == p)].index.tolist() for y in [0, 1] for p in [0, 1]}
+    groups = {
+        (y, p): df[(df["y"] == y) & (df["place"] == p)].index.tolist()
+        for y in [0, 1]
+        for p in [0, 1]
+    }
 
     # Shuffle indices in each group for randomness
     for key in groups:
@@ -76,20 +80,30 @@ def create_partitions(df: pd.DataFrame, n_parts: int):
     for p in [0, 1]:
         while groups[(0, p)]:
             # Valid buckets: either empty for y=0 or already set to a matching place value
-            valid_buckets = [i for i in range(n_parts) if
-                             (not partitions_y0[i] or df.loc[partitions_y0[i][0], 'place'] == p)]
+            valid_buckets = [
+                i
+                for i in range(n_parts)
+                if (not partitions_y0[i] or df.loc[partitions_y0[i][0], "place"] == p)
+            ]
             if not valid_buckets:
-                raise ValueError(f"Cannot assign y=0 element with place {p} without violating condition")
+                raise ValueError(
+                    f"Cannot assign y=0 element with place {p} without violating condition"
+                )
             bucket = random.choice(valid_buckets)
             partitions_y0[bucket].append(groups[(0, p)].pop())
 
     # Process y=1:
     for p in [0, 1]:
         while groups[(1, p)]:
-            valid_buckets = [i for i in range(n_parts) if
-                             (not partitions_y1[i] or df.loc[partitions_y1[i][0], 'place'] == p)]
+            valid_buckets = [
+                i
+                for i in range(n_parts)
+                if (not partitions_y1[i] or df.loc[partitions_y1[i][0], "place"] == p)
+            ]
             if not valid_buckets:
-                raise ValueError(f"Cannot assign y=1 element with place {p} without violating condition")
+                raise ValueError(
+                    f"Cannot assign y=1 element with place {p} without violating condition"
+                )
             bucket = random.choice(valid_buckets)
             partitions_y1[bucket].append(groups[(1, p)].pop())
 
@@ -100,7 +114,6 @@ def create_partitions(df: pd.DataFrame, n_parts: int):
     for part in partitions:
         random.shuffle(part)
 
-
     partition_details = {(p, y): [] for y in [0, 1] for p in [0, 1]}
 
     # Iterate over each partition and add the partition index for each (place, y) present.
@@ -108,7 +121,7 @@ def create_partitions(df: pd.DataFrame, n_parts: int):
         # We'll keep track of which (place, y) combinations have been seen in this partition
         seen = set()
         for idx in part:
-            key = (df.loc[idx, 'place'], df.loc[idx, 'y'])
+            key = (df.loc[idx, "place"], df.loc[idx, "y"])
             if key not in seen:
                 partition_details[key].append(i)
                 seen.add(key)

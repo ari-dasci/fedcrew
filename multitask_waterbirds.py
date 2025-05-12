@@ -103,9 +103,9 @@ def load_client_model(
     :param client_id: Index of client
     :return: A copy of the original model with the weights of the client_id-th client loaded
     """
-    assert client_id < len(
-        collected_weights
-    ), f"Client ID out of bounds, {client_id} >= {len(collected_weights)}"
+    assert client_id < len(collected_weights), (
+        f"Client ID out of bounds, {client_id} >= {len(collected_weights)}"
+    )
     client_weights = collected_weights[client_id]
     new_model = deepcopy(original_model).to(device)
     with torch.no_grad():
@@ -139,7 +139,9 @@ def get_summary_writer_filename(args):
 
 writer = SummaryWriter(get_summary_writer_filename(args)) if not args.no_log else None
 
-flex_dataset, test_data, must_have_indices = get_dataset("waterbirds" if args.dataset == "waterbirds_multi" else args.dataset)
+flex_dataset, test_data, must_have_indices = get_dataset(
+    "waterbirds" if args.dataset == "waterbirds_multi" else args.dataset
+)
 client_ids = list(flex_dataset.keys())
 
 print(f"Running options: {args}")
@@ -186,7 +188,7 @@ def train(client_flex_model: FlexModel, client_data: Dataset):
             optimizer.step()
 
 
-def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset, is_server = True):
+def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset, is_server=True):
     if is_server:
         test_data = select_waterbirds_label(test_data)
 
@@ -208,13 +210,13 @@ def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset, is_server =
         for data, target in test_dataloader:
             total_count += target.size(0)
             data, target = data.to(device), target.to(device)
-            
+
             # Debug prints
             if torch.isnan(data).any():
                 print("NaN found in input data")
-            
+
             reconstruction, output = model(data)
-            
+
             # Check outputs
             if torch.isnan(reconstruction).any():
                 print("NaN found in reconstruction")
@@ -223,18 +225,18 @@ def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset, is_server =
                 print("Output:", output)
                 print("Model_fc_weights:", model.fc.weight)
                 assert False, "Output contains NaN values"
-                
+
             reconstruction_loss = torch.nn.functional.mse_loss(reconstruction, data)
             if torch.isnan(reconstruction_loss):
                 print("NaN found in reconstruction loss")
-                
+
             loss = criterion(output, target)
             if torch.isnan(loss):
                 print("NaN found in classification loss")
-            
+
             reconstruction_losses.append(reconstruction_loss.item())
             losses.append(loss.item())
-            
+
             pred = output.data.max(1, keepdim=True)[1]
             test_acc += pred.eq(target.data.view_as(pred)).long().cpu().sum().item()
 
@@ -243,9 +245,13 @@ def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset, is_server =
                 confusion_matrix[t.long(), p.long()] += 1
 
     confusion_matrix = confusion_matrix.cpu().numpy()
-    test_loss = sum(losses) / len(losses) if losses else float('nan')
+    test_loss = sum(losses) / len(losses) if losses else float("nan")
     test_acc /= total_count
-    test_rec = sum(reconstruction_losses) / len(reconstruction_losses) if reconstruction_losses else float('nan')
+    test_rec = (
+        sum(reconstruction_losses) / len(reconstruction_losses)
+        if reconstruction_losses
+        else float("nan")
+    )
 
     return test_loss, test_acc, confusion_matrix, test_rec
 
@@ -447,9 +453,7 @@ def compute_features_weights_per_client(
         sample_weight = torch.where(torch.isnan(sample_weight), 0.0, sample_weight)
         label_relevances = torch.stack(
             [clients_relevances[client_id][label] for client_id in range(len(weights))]
-        ).to(
-            device
-        )  # (n_clients, n_samples, n_features)
+        ).to(device)  # (n_clients, n_samples, n_features)
 
         weights_features_clients = torch.sum(
             label_relevances * sample_weight.unsqueeze(-1), dim=1
@@ -483,8 +487,10 @@ def train_base(pool: FlexPool, n_rounds=100):
         selected_clients.map(train)
         must_have_clients.map(train)
 
-        if (round_number + 1) % 5 == 0  and writer:
-            client_metrics = selected_clients.map(obtain_metrics, is_server=False) + must_have_clients.map(obtain_metrics, is_server=False)
+        if (round_number + 1) % 5 == 0 and writer:
+            client_metrics = selected_clients.map(
+                obtain_metrics, is_server=False
+            ) + must_have_clients.map(obtain_metrics, is_server=False)
             losses = [loss for loss, _, _, _ in client_metrics]
             accs = [acc for _, acc, _, _ in client_metrics]
             recs = [rec for _, rec, _, rec in client_metrics]
@@ -513,14 +519,15 @@ def train_base(pool: FlexPool, n_rounds=100):
             writer.add_scalar("Median Client Accuracy", median_acc, round_number)
             writer.add_scalar("Max Client Accuracy", max_acc, round_number)
             writer.add_scalar("Min Client Accuracy", min_acc, round_number)
-            writer.add_scalar("Average Client Reconstruction Loss", avg_rec, round_number)
-            writer.add_scalar("Median Client Reconstruction Loss", median_rec, round_number)
+            writer.add_scalar(
+                "Average Client Reconstruction Loss", avg_rec, round_number
+            )
+            writer.add_scalar(
+                "Median Client Reconstruction Loss", median_rec, round_number
+            )
             writer.add_scalar("Max Client Reconstruction Loss", max_rec, round_number)
             writer.add_scalar("Min Client Reconstruction Loss", min_rec, round_number)
 
-            
-
-        
         pool.aggregators.map(get_clients_weights, selected_clients)
         pool.aggregators.map(get_clients_weights, must_have_clients)
         selected_clients.map(clean_up_models)

@@ -8,7 +8,8 @@ from tqdm import tqdm
 from .waterbirds import WaterbirdsDataset
 
 import sys
-sys.path.insert(0, '..')
+
+sys.path.insert(0, "..")
 from models import get_model, get_transforms
 
 
@@ -33,7 +34,7 @@ def train_epoch(model, train_loader, criterion, optimizer, device):
         total += labels.size(0)
         correct += predicted.eq(labels).sum().item()
 
-    return running_loss / len(train_loader), 100. * correct / total
+    return running_loss / len(train_loader), 100.0 * correct / total
 
 
 def evaluate(model, val_loader, criterion, device):
@@ -55,7 +56,7 @@ def evaluate(model, val_loader, criterion, device):
             total += labels.size(0)
             correct += predicted.eq(labels).sum().item()
 
-    return running_loss / len(val_loader), 100. * correct / total
+    return running_loss / len(val_loader), 100.0 * correct / total
 
 
 def main():
@@ -67,10 +68,12 @@ def main():
 
     # Cargar dataset (reemplazar CustomDataset con tu dataset)
     train_transforms = get_transforms("waterbirds")
-    train_dataset = Dataset.from_torchvision_dataset(WaterbirdsDataset()).to_torchvision_dataset(
-        transform=train_transforms)
-    val_dataset = Dataset.from_torchvision_dataset(WaterbirdsDataset(train=False)).to_torchvision_dataset(
-        transform=train_transforms)
+    train_dataset = Dataset.from_torchvision_dataset(
+        WaterbirdsDataset()
+    ).to_torchvision_dataset(transform=train_transforms)
+    val_dataset = Dataset.from_torchvision_dataset(
+        WaterbirdsDataset(train=False)
+    ).to_torchvision_dataset(transform=train_transforms)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
@@ -86,7 +89,9 @@ def main():
     # Entrenamiento
     best_acc = 0.0
     for epoch in range(num_epochs):
-        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
+        train_loss, train_acc = train_epoch(
+            model, train_loader, criterion, optimizer, device
+        )
         val_loss, val_acc = evaluate(model, val_loader, criterion, device)
 
         print(f"Epoch [{epoch + 1}/{num_epochs}]")
@@ -95,7 +100,7 @@ def main():
 
         if val_acc >= best_acc:
             best_acc = val_acc
-            torch.save(model.state_dict(), 'best_model.pth')
+            torch.save(model.state_dict(), "best_model.pth")
 
 
 if __name__ == "__main__":

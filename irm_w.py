@@ -25,7 +25,7 @@ from utils.flex_boilerplate import (
     clean_up_models,
     create_transfer_model,
     get_clients_fc_weights,
-    set_aggregated_fc_weights_to_server
+    set_aggregated_fc_weights_to_server,
 )
 from utils.prueba_crp import extract_heatmap
 
@@ -51,7 +51,12 @@ parser.add_argument(
 )
 
 parser.add_argument("--epochs", type=int, default=10, help="Number of epochs to train")
-parser.add_argument("--irm_epochs", type=int, default=10, help="Number of epochs to train the last layer")
+parser.add_argument(
+    "--irm_epochs",
+    type=int,
+    default=10,
+    help="Number of epochs to train the last layer",
+)
 parser.add_argument(
     "--batchsize",
     type=int,
@@ -70,7 +75,12 @@ parser.add_argument(
     "--no_log", action="store_true", help="If activated, no logs will be saved"
 )
 parser.add_argument("--rounds", type=int, default=75, help="Number of rounds")
-parser.add_argument("--irm_rounds", type=int, default=25, help="Number of rounds for computation of last layer")
+parser.add_argument(
+    "--irm_rounds",
+    type=int,
+    default=25,
+    help="Number of rounds for computation of last layer",
+)
 parser.add_argument("--l1", type=float, default=0.0, help="L1 regularization factor")
 parser.add_argument("--l2", type=float, default=0.0, help="L2 regularization factor")
 
@@ -84,8 +94,7 @@ AGG = fed_avg
 
 def get_summary_writer_filename(args):
     parts = [
-        "irm"
-        f"samples{args.samples}",
+        f"irmsamples{args.samples}",
         "l1" if args.l1 > 0.0 else "",
         "l2" if args.l2 > 0.0 else "",
         f"lognum{args.lognum}" if args.lognum > 0 else "",
@@ -110,7 +119,9 @@ def select_waterbirds_label(dataset: Dataset):
     return Dataset(X_data=dataset.X_data, y_data=y_data)
 
 
-def train(client_flex_model: FlexModel, client_data: Dataset, l1_factor=args.l1, epochs=EPOCHS):
+def train(
+    client_flex_model: FlexModel, client_data: Dataset, l1_factor=args.l1, epochs=EPOCHS
+):
     train_dataset = client_data.to_torchvision_dataset(transform=data_transforms)
     client_dataloader = DataLoader(
         train_dataset, batch_size=args.batchsize, shuffle=True
@@ -224,9 +235,9 @@ def load_client_model(
     :param client_id: Index of client
     :return: A copy of the original model with the weights of the client_id-th client loaded
     """
-    assert client_id < len(
-        collected_weights
-    ), f"Client ID out of bounds, {client_id} >= {len(collected_weights)}"
+    assert client_id < len(collected_weights), (
+        f"Client ID out of bounds, {client_id} >= {len(collected_weights)}"
+    )
     client_weights = collected_weights[client_id]
     new_model = deepcopy(original_model).to(device)
     with torch.no_grad():
@@ -262,7 +273,8 @@ def client_crp(client_model: nn.Module, client_id: int, sample_dataset: Dataset)
                 transform(img),
                 round_number,
             )
-            
+
+
 @aggregate_weights
 def irm_based_aggregation(weights: List[List[torch.Tensor]]):
     number_of_layers = len(weights[0])
@@ -314,22 +326,20 @@ def run_federated_round(
     epochs: int = EPOCHS,
 ):
     """Runs a single round of federated learning."""
-    selected_clients = other_clients.select(
-        CLIENTS_PER_ROUND - len(must_have_clients)
-    )
+    selected_clients = other_clients.select(CLIENTS_PER_ROUND - len(must_have_clients))
     pool.servers.map(copy_server_model_to_clients_func, selected_clients)
     pool.servers.map(copy_server_model_to_clients_func, must_have_clients)
 
     selected_clients.map(train_func, epochs=epochs)
     must_have_clients.map(train_func, epochs=epochs)
     if (round_number + 1) % 5 == 0 and writer:
-        client_metrics = selected_clients.map(obtain_metrics_func, is_server=False) + must_have_clients.map(
+        client_metrics = selected_clients.map(
             obtain_metrics_func, is_server=False
-        )
+        ) + must_have_clients.map(obtain_metrics_func, is_server=False)
         losses = [loss for loss, _, _ in client_metrics]
         accs = [acc for _, acc, _ in client_metrics]
 
-        if losses: # Ensure metrics were collected
+        if losses:  # Ensure metrics were collected
             avg_loss = sum(losses) / len(losses)
             median_loss = np.median(losses)
             max_loss = max(losses)
@@ -339,7 +349,7 @@ def run_federated_round(
             writer.add_scalar("Max Client Loss", max_loss, round_number)
             writer.add_scalar("Min Client Loss", min_loss, round_number)
 
-        if accs: # Ensure metrics were collected
+        if accs:  # Ensure metrics were collected
             avg_acc = sum(accs) / len(accs)
             median_acc = np.median(accs)
             max_acc = max(accs)
@@ -368,9 +378,9 @@ def run_federated_round(
         plt.imshow(confusion_matrix)
         # plt.show() # Consider removing plt.show() if running non-interactively
         writer.add_figure("confusion_matrix", fig, round_number)
-        plt.close(fig) # Close the figure to free memory
+        plt.close(fig)  # Close the figure to free memory
         print("Clossing images")
-    print(f"ROUND {round_number}: loss {loss:7.4f}, acc {acc:7.4f}") # Added formatting
+    print(f"ROUND {round_number}: loss {loss:7.4f}, acc {acc:7.4f}")  # Added formatting
 
 
 def train_base(pool: FlexPool, n_rounds=args.rounds, irm_rounds=args.irm_rounds):
@@ -408,7 +418,7 @@ def train_base(pool: FlexPool, n_rounds=args.rounds, irm_rounds=args.irm_rounds)
     pool.servers.map(create_transfer_model)
     for j in range(irm_rounds):
         round_number = n_rounds + j
-        print(f"Starting IRM round {j+1}/{irm_rounds}")
+        print(f"Starting IRM round {j + 1}/{irm_rounds}")
         run_federated_round(
             pool=pool,
             round_number=round_number,
