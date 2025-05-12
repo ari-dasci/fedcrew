@@ -5,6 +5,8 @@ runs/
 *.pkl
 __pycache__/
 *.xml
+*.venv/
+*.ruff_cache/
 
 # Datasets
 *.tar.gz
