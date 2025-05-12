@@ -11,7 +11,12 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
+            - name: Checkout code
+              uses: actions/checkout@v4 # Add this step
+              
             - name: Ruff Linting and Formatting
               uses: astral-sh/ruff-action@v3
+              with:
+                src: "."
             - run: ruff check --fix
             - run: ruff format
