@@ -1,0 +1,17 @@
+name: Ruff Linting
+
+on:
+    push:
+        branches: [ "master" ]
+    pull_request:
+        branches: [ "master" ]
+
+jobs:
+    lint:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Ruff Linting and Formatting
+              uses: astral-sh/ruff-action@v3
+            - run: ruff check --fix
+            - run: ruff format
