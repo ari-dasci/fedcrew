@@ -49,6 +49,15 @@ def set_aggregated_weights_to_server(server_flex_model: FlexModel, aggregated_we
         for layer_key, new in zip(weight_dict, aggregated_weights):
             weight_dict[layer_key].copy_(weight_dict[layer_key].to(dev) + new)
 
+@set_aggregated_weights
+def set_aggregated_fc_weights_to_server(server_flex_model: FlexModel, aggregated_weights):
+    dev = aggregated_weights[0].get_device()
+    dev = "cpu" if dev == -1 else "cuda" + (f":{dev}" if dev > 0 else "")
+    with torch.no_grad():
+        weight_dict = server_flex_model["model"].fc.state_dict()
+        for layer_key, new in zip(weight_dict, aggregated_weights):
+            weight_dict[layer_key].copy_(weight_dict[layer_key].to(dev) + new)
+
 
 @collect_clients_weights
 def get_clients_weights(client_flex_model: FlexModel):
@@ -60,6 +69,26 @@ def get_clients_weights(client_flex_model: FlexModel):
         (weight_dict[name] - server_dict[name].to(dev)).type(torch.float)
         for name in weight_dict
     ]
+
+@collect_clients_weights
+def get_clients_fc_weights(client_flex_model: FlexModel):
+    weight_dict = client_flex_model["model"].state_dict()
+    server_dict = client_flex_model["server_model"].state_dict()
+    dev = [weight_dict[name] for name in weight_dict][0].get_device()
+    dev = "cpu" if dev == -1 else "cuda"
+    return [
+        (weight_dict[name] - server_dict[name].to(dev)).type(torch.float)
+        for name in weight_dict if "fc" in name
+    ]
+
+def create_transfer_model(server_flex_model: FlexModel, _):
+    model = server_flex_model["model"]
+    for name, param in model.named_parameters():
+        if "fc" not in name:
+            param.requires_grad = False
+    
+    # reset fc layer
+    model.fc.reset_parameters()
 
 
 def clean_up_models(client_model: FlexModel, _):

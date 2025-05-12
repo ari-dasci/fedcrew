@@ -1,7 +1,6 @@
 import argparse
-import os
 from copy import deepcopy
-from typing import List, Tuple
+from typing import List
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -148,7 +147,6 @@ data_transforms = get_transforms(args.dataset)
 
 
 def select_waterbirds_label(dataset: Dataset):
-    label_index = 0
     y_data = [y[0] for y in dataset.y_data]
     y_data = LazyIndexable(y_data, len(y_data))
     return Dataset(X_data=dataset.X_data, y_data=y_data)

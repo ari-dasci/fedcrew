@@ -29,7 +29,7 @@ from utils.flex_boilerplate import (
     set_aggregated_weights_to_server,
     get_clients_weights,
     clean_up_models,
-    causal_weighted_average, scalable_softmax,
+    causal_weighted_average,
 )
 from utils.prueba_crp import extract_heatmap
 
@@ -281,9 +281,9 @@ def select_subsample_server_data(_, dataset: Dataset, k=2) -> Dataset:
     torch_data = new_dataset.to_torchvision_dataset()
     transform = transforms.ToTensor()
     for i in range(len(torch_data)):
-        sample, l = torch_data[i]
+        sample, label = torch_data[i]
         sample = np.copy(sample)
-        print(f"sample {i} is label{l}")
+        print(f"sample {i} is label{label}")
         if writer:
             writer.add_image(f"sample/{i}", transform(sample), 0)
 

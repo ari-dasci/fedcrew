@@ -94,14 +94,13 @@ def _waterbirds():
         flex_dataset = Dataset.from_torchvision_dataset(train_data)
         test_data = Dataset.from_torchvision_dataset(test_data)
 
-        partition_indices, partition_details = train_data.get_partitions(25)
+        partition_indices, partition_details = train_data.get_partitions(100)
         must_have_indices = []
         for v in partition_details.values():
             must_have_indices.append(v[0])
 
 
         def select_label(dataset: Dataset):
-            label_index = 0
             y_data = [y[0] for y in dataset.y_data]
             y_data = LazyIndexable(y_data, len(y_data))
             return Dataset(X_data=dataset.X_data, y_data=y_data)
