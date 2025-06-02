@@ -42,7 +42,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "--dataset",
     type=str,
-    choices=["cifar_10", "imagenet", "celeba", "waterbirds"],
+    choices=["cifar_10", "imagenet", "celeba", "waterbirds", "colored_mnist"],
     default="cifar_10",
     help="Dataset to use",
 )

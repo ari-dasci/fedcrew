@@ -39,6 +39,11 @@ DATASET_CONFIG = {
         transforms=lambda: ResNet18_Weights.DEFAULT.transforms(),
         model_factory=lambda: AutoencoderMultitask(num_classes=2),
     ),
+    "colored_mnist": DatasetConfig(
+        num_classes=2,
+        transforms=lambda: transforms.Compose(transforms.ToTensor()),
+        model_factory=lambda: MNISTNet(num_classes=2),
+    ),
     "default": DatasetConfig(
         num_classes=10,
         transforms=lambda: ResNet18_Weights.DEFAULT.transforms(),
@@ -52,6 +57,8 @@ def fetch_relevance_layer(model: nn.Module) -> str:
         return "conv4"
     if isinstance(model, AutoencoderMultitask):
         return "encoder.12"
+    if isinstance(model, MNISTNet):
+        return "conv2"
     return "layer4.1.conv2"  # Resnet-18
 
 
@@ -95,6 +102,24 @@ class CelebaNet(nn.Module):
         x = self.drop3(F.relu(self.bn3(self.conv3(x))))
         x = F.max_pool2d(x, 2, 2)
         x = self.drop4(F.relu(self.bn4(self.conv4(x))))
+        x = F.max_pool2d(x, 2, 2)
+        x = torch.flatten(x, 1)
+        return self.fc(x)
+
+
+class MNISTNet(nn.Module):
+    def __init__(self, num_classes=2):
+        super().__init__()
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding="same")
+        self.drop1 = nn.Dropout(p=0.4)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding="same")
+        self.drop2 = nn.Dropout(p=0.4)
+        self.fc = nn.Linear(64 * 7 * 7, num_classes)
+
+    def forward(self, x):
+        x = self.drop1(F.relu(self.conv1(x)))
+        x = F.max_pool2d(x, 2, 2)
+        x = self.drop2(F.relu(self.conv2(x)))
         x = F.max_pool2d(x, 2, 2)
         x = torch.flatten(x, 1)
         return self.fc(x)

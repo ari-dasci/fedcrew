@@ -131,12 +131,42 @@ def _waterbirds():
     return flex_dataset, test_data, must_have_indices
 
 
+def _colored_mnist():
+    from utils.colored_mnist import CMNIST, DropEnvDataset
+
+    dataset_creator = CMNIST("~/")
+    environments = dataset_creator.create_environments(combine_datasets=False)
+    first_env, second_env, test_env = [DropEnvDataset(env) for env in environments]
+    first_dataset, second_dataset = (
+        Dataset.from_torchvision_dataset(first_env),
+        Dataset.from_torchvision_dataset(second_env),
+    )
+    test_dataset = Dataset.from_torchvision_dataset(test_env)
+
+    config = FedDatasetConfig(seed=0)
+    config.replacement = False
+    config.n_nodes = 100
+    first_dataset = FedDataDistribution.from_config(first_dataset, config)
+    second_dataset = FedDataDistribution.from_config(second_dataset, config)
+
+    num_clients = len(first_dataset)
+
+    for k in second_dataset.keys():
+        assert (k + num_clients) not in first_dataset.keys(), (
+            f"Client {k + num_clients} in second dataset overlaps with first dataset clients."
+        )
+        first_dataset[k + num_clients] = second_dataset[k]
+
+    return first_dataset, test_dataset, [0, num_clients]
+
+
 DATASET_CONFIG = {
     "celeba": DatasetConfig(loader=_celeba_non_iid),
     "cifar_10": DatasetConfig(loader=_cifar_10_iid),
     "imagenet": DatasetConfig(loader=_imagenet),
     "waterbirds": DatasetConfig(loader=_waterbirds),
     "waterbirds_multi": DatasetConfig(loader=_waterbirds),
+    "colored_mnist": DatasetConfig(loader=_colored_mnist),
 }
 
 
