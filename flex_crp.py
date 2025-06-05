@@ -11,7 +11,7 @@ from crp.helper import get_layer_names
 from crp.image import imgify
 from flex.data import Dataset, LazyIndexable
 from flex.model import FlexModel
-from flex.pool import FlexPool, fed_avg
+from flex.pool import FlexPool, fed_avg, weighted_fed_avg
 from torch import nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -32,6 +32,7 @@ from utils.flex_boilerplate import (
 )
 from utils.prueba_crp import extract_heatmap
 from utils.fedprox import fedprox_regularization
+from utils.fednova import get_fednova_iters, obtain_fednova_weights
 
 assert torch.cuda.is_available(), "CUDA not available"
 device = "cuda"
@@ -88,6 +89,11 @@ parser.add_argument(
     default=0.0,
     help="FedProx regularization factor, set to 0.0 to disable",
 )
+parser.add_argument(
+    "--fednova",
+    action="store_true",
+    help="Whether to use FedNova",
+)
 parser.add_argument("--rounds", type=int, default=100, help="Number of rounds")
 parser.add_argument("--l1", type=float, default=0.0, help="L1 regularization factor")
 parser.add_argument("--l2", type=float, default=0.0, help="L2 regularization factor")
@@ -102,7 +108,11 @@ args = parser.parse_args()
 CLIENTS_PER_ROUND = args.clients
 EPOCHS = args.epochs
 
-AGG = causal_weighted_average if args.causal else fed_avg
+AGG = (
+    causal_weighted_average
+    if args.causal
+    else (weighted_fed_avg if args.fednova else fed_avg)
+)
 
 
 def get_summary_writer_filename(args):
@@ -139,6 +149,7 @@ def train(
     client_data: Dataset,
     l1_factor=args.l1,
     fedprox_factor=args.fedprox,
+    fednova=args.fednova,
 ):
     train_dataset = client_data.to_torchvision_dataset(transform=data_transforms)
     client_dataloader = DataLoader(
@@ -151,8 +162,10 @@ def train(
     model = model.train()
     model = model.to(device)
     criterion = client_flex_model["criterion"]
+    number_iterations = 0
     for _ in range(EPOCHS):
         for images, labels in client_dataloader:
+            number_iterations += 1
             images, labels = images.to(device), labels.to(device)
             optimizer.zero_grad()
             pred = model(images)
@@ -170,6 +183,9 @@ def train(
 
             loss.backward()
             optimizer.step()
+
+    if fednova:
+        client_flex_model["fednova_iters"] = number_iterations
 
 
 def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset, is_server=True):
@@ -488,6 +504,14 @@ def train_base(pool: FlexPool, n_rounds=100):
 
         pool.aggregators.map(get_clients_weights, selected_clients)
         pool.aggregators.map(get_clients_weights, must_have_clients)
+        ponderation_list = (
+            obtain_fednova_weights(
+                selected_clients.map(get_fednova_iters)
+                + must_have_clients.map(get_fednova_iters)
+            )
+            if args.fednova
+            else []
+        )
         selected_clients.map(clean_up_models)
 
         ponderation_tensor = (
@@ -500,6 +524,8 @@ def train_base(pool: FlexPool, n_rounds=100):
 
         if args.causal:
             pool.aggregators.map(AGG, ponderation_tensor=ponderation_tensor)
+        elif args.fednova:
+            pool.aggregators.map(AGG, ponderation=ponderation_list)
         else:
             pool.aggregators.map(AGG)
         pool.aggregators.map(set_aggregated_weights_to_server, pool.servers)
