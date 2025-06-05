@@ -31,6 +31,7 @@ from utils.flex_boilerplate import (
     causal_weighted_average,
 )
 from utils.prueba_crp import extract_heatmap
+from utils.fedprox import fedprox_regularization
 
 assert torch.cuda.is_available(), "CUDA not available"
 device = "cuda"
@@ -81,6 +82,12 @@ parser.add_argument(
 parser.add_argument(
     "--no_log", action="store_true", help="If activated, no logs will be saved"
 )
+parser.add_argument(
+    "--fedprox",
+    type=float,
+    default=0.0,
+    help="FedProx regularization factor, set to 0.0 to disable",
+)
 parser.add_argument("--rounds", type=int, default=100, help="Number of rounds")
 parser.add_argument("--l1", type=float, default=0.0, help="L1 regularization factor")
 parser.add_argument("--l2", type=float, default=0.0, help="L2 regularization factor")
@@ -127,7 +134,12 @@ def select_waterbirds_label(dataset: Dataset):
     return Dataset(X_data=dataset.X_data, y_data=y_data)
 
 
-def train(client_flex_model: FlexModel, client_data: Dataset, l1_factor=args.l1):
+def train(
+    client_flex_model: FlexModel,
+    client_data: Dataset,
+    l1_factor=args.l1,
+    fedprox_factor=args.fedprox,
+):
     train_dataset = client_data.to_torchvision_dataset(transform=data_transforms)
     client_dataloader = DataLoader(
         train_dataset, batch_size=args.batchsize, shuffle=True
@@ -149,6 +161,13 @@ def train(client_flex_model: FlexModel, client_data: Dataset, l1_factor=args.l1)
                 # TODO: fc is hardcoded
                 l1_loss = sum(p.abs().sum() for p in model.fc.parameters())
                 loss += l1_factor * l1_loss
+
+            if fedprox_factor > 0.0:
+                fedprox_loss = fedprox_regularization(
+                    model, client_flex_model["server_model"], mu=fedprox_factor
+                )
+                loss += fedprox_loss
+
             loss.backward()
             optimizer.step()
 
