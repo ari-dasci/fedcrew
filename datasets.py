@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Tuple
+from typing import Callable, Tuple, List
 
 from flex.data import (
     Dataset,
@@ -12,7 +12,7 @@ from flex.data import (
 
 @dataclass
 class DatasetConfig:
-    loader: Callable[[], Tuple[FedDataset, Dataset]]
+    loader: Callable[[], Tuple[FedDataset, Dataset, List[int]]]
 
 
 def _celeba_non_iid():
@@ -160,6 +160,13 @@ def _colored_mnist():
     return first_dataset, test_dataset, [0, num_clients]
 
 
+def _non_iid_mnist():
+    from flex import datasets
+
+    train, test = datasets.load("federated_emnist", return_test=True)
+    return train, test, []
+
+
 DATASET_CONFIG = {
     "celeba": DatasetConfig(loader=_celeba_non_iid),
     "cifar_10": DatasetConfig(loader=_cifar_10_iid),
@@ -167,10 +174,11 @@ DATASET_CONFIG = {
     "waterbirds": DatasetConfig(loader=_waterbirds),
     "waterbirds_multi": DatasetConfig(loader=_waterbirds),
     "colored_mnist": DatasetConfig(loader=_colored_mnist),
+    "mnist_non_iid": DatasetConfig(loader=_non_iid_mnist),
 }
 
 
-def get_dataset(dataset: str) -> Tuple[FedDataset, Dataset]:
+def get_dataset(dataset: str) -> Tuple[FedDataset, Dataset, List[int]]:
     config = DATASET_CONFIG.get(dataset)
     if config is None:
         raise ValueError(f"Unknown dataset: {dataset}")

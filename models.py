@@ -41,8 +41,13 @@ DATASET_CONFIG = {
     ),
     "colored_mnist": DatasetConfig(
         num_classes=2,
-        transforms=lambda: transforms.Compose(transforms.ToTensor()),
+        transforms=lambda: transforms.Compose([transforms.ToTensor()]),
         model_factory=lambda: MNISTNet(num_classes=2),
+    ),
+    "mnist_non_iid": DatasetConfig(
+        num_classes=10,
+        transforms=lambda: transforms.Compose([transforms.ToTensor()]),
+        model_factory=lambda: MNISTNet(num_classes=10),
     ),
     "default": DatasetConfig(
         num_classes=10,
