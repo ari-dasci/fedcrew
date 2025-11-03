@@ -44,7 +44,14 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "--dataset",
     type=str,
-    choices=["cifar_10", "imagenet", "celeba", "waterbirds", "colored_mnist", "mnist_non_iid"],
+    choices=[
+        "cifar_10",
+        "imagenet",
+        "celeba",
+        "waterbirds",
+        "colored_mnist",
+        "mnist_non_iid",
+    ],
     default="cifar_10",
     help="Dataset to use",
 )
@@ -103,6 +110,12 @@ parser.add_argument(
     default=0.5,
     help="Threshold for counting a sample as correct",
 )
+parser.add_argument(
+    "--l2_fc",
+    type=float,
+    default=0.0,
+    help="L2 regularization factor for fc layer (proximal term for fc only)",
+)
 args = parser.parse_args()
 
 CLIENTS_PER_ROUND = args.clients
@@ -124,6 +137,7 @@ def get_summary_writer_filename(args):
         f"lognum{args.lognum}" if args.lognum > 0 else "",
         "sgd" if EPOCHS == 1 else "",
         f"alpha{args.alpha}",
+        "l2_fc" if args.l2_fc > 0.0 else "",
     ]
     return f"runs/{args.dataset}/" + ".".join([part for part in parts if part])
 
@@ -150,6 +164,7 @@ def train(
     l1_factor=args.l1,
     fedprox_factor=args.fedprox,
     fednova=args.fednova,
+    l2_fc_factor=args.l2_fc,
 ):
     train_dataset = client_data.to_torchvision_dataset(transform=data_transforms)
     client_dataloader = DataLoader(
@@ -174,6 +189,20 @@ def train(
                 # TODO: fc is hardcoded
                 l1_loss = sum(p.abs().sum() for p in model.fc.parameters())
                 loss += l1_factor * l1_loss
+
+            if l2_fc_factor > 0.0:
+                server_fc = client_flex_model["server_model"].fc
+                l2_loss = torch.sum(
+                    torch.stack(
+                        [
+                            ((p - server_p.to(device)).pow(2).sum() / p.numel())
+                            for p, server_p in zip(
+                                model.fc.parameters(), server_fc.parameters()
+                            )
+                        ]
+                    )
+                )
+                loss += l2_fc_factor * l2_loss
 
             if fedprox_factor > 0.0:
                 fedprox_loss = fedprox_regularization(
@@ -238,9 +267,15 @@ def select_subsample_server_data(_, dataset: Dataset, k=2) -> Dataset:
     :return: a Dataset object with k samples per class
     """
     print("Creating subsample")
-    labels = dataset.y_data
+    labels: LazyIndexable = dataset.y_data
     if args.dataset == "waterbirds":
         labels = [(label[0], label[1]) for label in labels]
+    if args.dataset == "colored_mnist":
+        data = dataset.X_data
+        labels = [
+            (label, torch.argmax(img.sum(dim=(1, 2))).item())
+            for label, img in zip(labels, data)
+        ]
     labels_to_indices = {label: [] for label in labels}
 
     for i, label in enumerate(labels):
@@ -249,7 +284,7 @@ def select_subsample_server_data(_, dataset: Dataset, k=2) -> Dataset:
 
     indices = [v for v in labels_to_indices.values()]
     indices = [i for sublist in indices for i in sublist]
-    new_dataset = dataset[indices]
+    new_dataset: Dataset = dataset[indices]
 
     if args.dataset == "waterbirds":
         new_dataset = select_waterbirds_label(new_dataset)
@@ -258,7 +293,9 @@ def select_subsample_server_data(_, dataset: Dataset, k=2) -> Dataset:
     transform = transforms.ToTensor()
     for i in range(len(torch_data)):
         sample, _ = torch_data[i]
-        sample = np.copy(sample)
+        sample = np.copy(sample.cpu().numpy())
+        if sample.shape[0] == 1 or sample.shape[0] == 3:
+            sample = np.transpose(sample, (1, 2, 0))
         if writer:
             writer.add_image(f"sample/{i}", transform(sample), 0)
 
@@ -276,9 +313,9 @@ def load_client_model(
     :param client_id: Index of client
     :return: A copy of the original model with the weights of the client_id-th client loaded
     """
-    assert client_id < len(collected_weights), (
-        f"Client ID out of bounds, {client_id} >= {len(collected_weights)}"
-    )
+    assert client_id < len(
+        collected_weights
+    ), f"Client ID out of bounds, {client_id} >= {len(collected_weights)}"
     client_weights = collected_weights[client_id]
     new_model = deepcopy(original_model).to(device)
     with torch.no_grad():
@@ -442,7 +479,9 @@ def compute_features_weights_per_client(
         )  # (n_clients, n_samples)
         label_relevances = torch.stack(
             [clients_relevances[client_id][label] for client_id in range(len(weights))]
-        ).to(device)  # (n_clients, n_samples, n_features)
+        ).to(
+            device
+        )  # (n_clients, n_samples, n_features)
 
         weights_features_clients = torch.sum(
             label_relevances * sample_weight.unsqueeze(-1), dim=1
