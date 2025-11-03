@@ -33,6 +33,7 @@ def _celeba_non_iid():
 
     def select_label(dataset: Dataset):
         smiling_index = -9
+        assert dataset.y_data is not None, "y_data is None"
         y_data = (
             [y[1] for y in dataset.y_data]
             if isinstance(dataset.y_data[0], tuple)
@@ -132,32 +133,12 @@ def _waterbirds():
 
 
 def _colored_mnist():
-    from utils.colored_mnist import CMNIST, DropEnvDataset
+    from utils.colored_mnist import create_flex_colored_mnist_environments
 
-    dataset_creator = CMNIST("~/")
-    environments = dataset_creator.create_environments(combine_datasets=False)
-    first_env, second_env, test_env = [DropEnvDataset(env) for env in environments]
-    first_dataset, second_dataset = (
-        Dataset.from_torchvision_dataset(first_env),
-        Dataset.from_torchvision_dataset(second_env),
-    )
-    test_dataset = Dataset.from_torchvision_dataset(test_env)
+    fed_dataset, test_dataset = create_flex_colored_mnist_environments(num_clients=200)
 
-    config = FedDatasetConfig(seed=0)
-    config.replacement = False
-    config.n_nodes = 100
-    first_dataset = FedDataDistribution.from_config(first_dataset, config)
-    second_dataset = FedDataDistribution.from_config(second_dataset, config)
-
-    num_clients = len(first_dataset)
-
-    for k in second_dataset.keys():
-        assert (k + num_clients) not in first_dataset.keys(), (
-            f"Client {k + num_clients} in second dataset overlaps with first dataset clients."
-        )
-        first_dataset[k + num_clients] = second_dataset[k]
-
-    return first_dataset, test_dataset, [0, num_clients]
+    # We add the last client as must-have to ensure diversity in the test set
+    return fed_dataset, test_dataset, [max(fed_dataset.keys()), min(fed_dataset.keys())]
 
 
 def _non_iid_mnist():
