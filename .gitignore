@@ -17,3 +17,10 @@ __pycache__/
 
 # images
 *.png
+
+*.env
+
+data/
+
+wandb/
+*.pt
