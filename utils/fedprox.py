@@ -16,6 +16,6 @@ def fedprox_regularization(model: nn.Module, server_model: nn.Module, mu=0.01):
     """
     loss = 0.0
     for local_param, global_param in zip(model.parameters(), server_model.parameters()):
-        loss += torch.sum((local_param - global_param) ** 2)
+        loss += torch.sum((local_param.cuda() - global_param.cuda()) ** 2)
 
     return mu * loss

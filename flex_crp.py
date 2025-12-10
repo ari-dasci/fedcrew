@@ -33,6 +33,7 @@ from utils.flex_boilerplate import (
 from utils.prueba_crp import extract_heatmap
 from utils.fedprox import fedprox_regularization
 from utils.fednova import get_fednova_iters, obtain_fednova_weights
+import wandb
 
 assert torch.cuda.is_available(), "CUDA not available"
 device = "cuda"
@@ -142,7 +143,40 @@ def get_summary_writer_filename(args):
     return f"runs/{args.dataset}/" + ".".join([part for part in parts if part])
 
 
+def get_wandb_run_name(args):
+    def _get_aggregator(args):
+        if args.causal:
+            return "causal"
+        elif args.fednova:
+            return "fednova"
+        elif args.fedprox > 0.0:
+            return "fedprox"
+        else:
+            return "fedavg"
+    parts = [
+        _get_aggregator(args),
+        f"samples{args.samples}",
+        "l1" if args.l1 > 0.0 else "",
+        "l2" if args.l2 > 0.0 else "",
+        f"lognum{args.lognum}" if args.lognum > 0 else "",
+        f"client_epochs{EPOCHS}",
+        f"alpha{args.alpha}",
+        "l2_fc" if args.l2_fc > 0.0 else "",
+    ]
+    return ".".join([part for part in parts if part])
+
+
 writer = SummaryWriter(get_summary_writer_filename(args)) if not args.no_log else None
+wandb.login()
+run = (
+    wandb.init(
+        project="crp_aggregation",
+        name=get_wandb_run_name(args),
+        config=vars(args),
+    )
+    if not args.no_log
+    else None
+)
 
 flex_dataset, test_data, must_have_indices = get_dataset(args.dataset)
 client_ids = list(flex_dataset.keys())
@@ -292,12 +326,17 @@ def select_subsample_server_data(_, dataset: Dataset, k=2) -> Dataset:
     torch_data = new_dataset.to_torchvision_dataset()
     transform = transforms.ToTensor()
     for i in range(len(torch_data)):
-        sample, _ = torch_data[i]
+        sample = transform(torch_data[i][0])
         sample = np.copy(sample.cpu().numpy())
         if sample.shape[0] == 1 or sample.shape[0] == 3:
             sample = np.transpose(sample, (1, 2, 0))
         if writer:
             writer.add_image(f"sample/{i}", transform(sample), 0)
+            assert run is not None, "WandB run is not initialized"
+            run.log(
+                {f"Samples/Sample_{i}": wandb.Image(sample)},
+                step=round_number,
+            )
 
     return new_dataset
 
@@ -361,6 +400,11 @@ def client_crp(client_model: nn.Module, client_id: int, sample_dataset: Dataset)
                 f"crp/client_{client_id}/image_{sample_id}",
                 transform(img),
                 round_number,
+            )
+            assert run is not None, "WandB run is not initialized"
+            run.log(
+                {f"CRP/Client_{client_id}/Image_{sample_id}": wandb.Image(img)},
+                step=round_number,
             )
 
 
@@ -530,6 +574,16 @@ def train_base(pool: FlexPool, n_rounds=100):
                 writer.add_scalar("Median Client Loss", median_loss, round_number)
                 writer.add_scalar("Max Client Loss", max_loss, round_number)
                 writer.add_scalar("Min Client Loss", min_loss, round_number)
+                assert run is not None, "WandB run is not initialized"
+                run.log(
+                    {
+                        "Client/Average Loss": avg_loss,
+                        "Client/Median Loss": median_loss,
+                        "Client/Max Loss": max_loss,
+                        "Client/Min Loss": min_loss,
+                    },
+                    step=round_number,
+                )
 
             if accs:  # Ensure metrics were collected
                 avg_acc = sum(accs) / len(accs)
@@ -540,6 +594,16 @@ def train_base(pool: FlexPool, n_rounds=100):
                 writer.add_scalar("Median Client Accuracy", median_acc, round_number)
                 writer.add_scalar("Max Client Accuracy", max_acc, round_number)
                 writer.add_scalar("Min Client Accuracy", min_acc, round_number)
+                assert run is not None, "WandB run is not initialized"
+                run.log(
+                    {
+                        "Client/Average Accuracy": avg_acc,
+                        "Client/Median Accuracy": median_acc,
+                        "Client/Max Accuracy": max_acc,
+                        "Client/Min Accuracy": min_acc,
+                    },
+                    step=round_number,
+                )
 
         pool.aggregators.map(get_clients_weights, selected_clients)
         pool.aggregators.map(get_clients_weights, must_have_clients)
@@ -576,10 +640,16 @@ def train_base(pool: FlexPool, n_rounds=100):
         if writer:
             writer.add_scalar("Loss", loss, round_number)
             writer.add_scalar("Accuracy", acc, round_number)
+            assert run is not None, "WandB run is not initialized"
+            run.log({"Server/Loss": loss, "Server/Accuracy": acc}, step=round_number)
             fig = plt.figure()
             plt.imshow(confusion_matrix)
             plt.show()
             writer.add_figure("confusion_matrix", fig, round_number)
+            run.log(
+                {"Server/Confusion_Matrix": wandb.Image(fig)},
+                step=round_number,
+            )
         print(f"ROUND {round_number}: loss {loss:7}, acc {acc:7}")
 
 
@@ -595,6 +665,8 @@ def run_server_pool():
 
 def main():
     run_server_pool()
+    if run:
+        run.finish()
 
 
 if __name__ == "__main__":
