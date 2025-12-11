@@ -47,8 +47,11 @@ parser.add_argument(
     type=str,
     choices=[
         "cifar_10",
+        "cifar_10_non_iid",
         "imagenet",
         "celeba",
+        "celeba_a",
+        "celeba_m",
         "waterbirds",
         "colored_mnist",
         "mnist_non_iid",
@@ -153,6 +156,7 @@ def get_wandb_run_name(args):
             return "fedprox"
         else:
             return "fedavg"
+
     parts = [
         _get_aggregator(args),
         f"samples{args.samples}",

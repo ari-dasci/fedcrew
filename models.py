@@ -29,6 +29,20 @@ DATASET_CONFIG = {
         ),
         model_factory=lambda: _get_resnet(num_classes=2),
     ),
+    "celeba_a": DatasetConfig(
+        num_classes=2,
+        transforms=lambda: transforms.Compose(
+            [transforms.ToPILImage(), ResNet18_Weights.DEFAULT.transforms()]
+        ),
+        model_factory=lambda: _get_resnet(num_classes=2),
+    ),
+    "celeba_m": DatasetConfig(
+        num_classes=2,
+        transforms=lambda: transforms.Compose(
+            [transforms.ToPILImage(), ResNet18_Weights.DEFAULT.transforms()]
+        ),
+        model_factory=lambda: _get_resnet(num_classes=2),
+    ),
     "waterbirds": DatasetConfig(
         num_classes=2,
         transforms=lambda: ResNet18_Weights.DEFAULT.transforms(),
@@ -43,6 +57,11 @@ DATASET_CONFIG = {
         num_classes=2,
         transforms=lambda: transforms.Compose([]),
         model_factory=lambda: MNISTNet(num_classes=2),
+    ),
+    "cifar_10_non_iid": DatasetConfig(
+        num_classes=10,
+        transforms=lambda: ResNet18_Weights.DEFAULT.transforms(),
+        model_factory=lambda: _get_resnet(num_classes=10),
     ),
     "mnist_non_iid": DatasetConfig(
         num_classes=10,
