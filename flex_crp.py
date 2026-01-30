@@ -1,6 +1,7 @@
+from PIL.Image import new
 import argparse
 from copy import deepcopy
-from typing import List
+from typing import List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -297,13 +298,15 @@ def obtain_accuracy(server_flex_model: FlexModel, test_data: Dataset):
     return obtain_metrics(server_flex_model, test_data)[1]
 
 
-def select_subsample_server_data(_, dataset: Dataset, k=2) -> Dataset:
+def select_subsample_server_data(_, dataset: Dataset, k=2) -> Tuple[Dataset, Dataset]:
     """
     :param _: server flex_model
     :param dataset: server dataset
     :param k: how many samples per class to select
     :return: a Dataset object with k samples per class
     """
+    from flex.data import LazyIndexable
+
     print("Creating subsample")
     labels: LazyIndexable = dataset.y_data
     if args.dataset == "waterbirds":
@@ -324,6 +327,17 @@ def select_subsample_server_data(_, dataset: Dataset, k=2) -> Dataset:
     indices = [i for sublist in indices for i in sublist]
     new_dataset: Dataset = dataset[indices]
 
+    # Remove indices from the original dataset
+    indices_not_included = np.arange(len(dataset))
+    indices_not_included = np.setdiff1d(indices_not_included, np.array(indices))
+    new_x_data = LazyIndexable(
+        dataset.X_data, indices_not_included.shape[0], indices_not_included
+    )
+    new_y_data = LazyIndexable(
+        dataset.y_data, indices_not_included.shape[0], indices_not_included
+    )
+    new_test_dataset = Dataset(X_data=new_x_data, y_data=new_y_data)
+
     if args.dataset == "waterbirds":
         new_dataset = select_waterbirds_label(new_dataset)
 
@@ -342,7 +356,7 @@ def select_subsample_server_data(_, dataset: Dataset, k=2) -> Dataset:
                 step=round_number,
             )
 
-    return new_dataset
+    return new_dataset, new_test_dataset
 
 
 def load_client_model(
@@ -543,9 +557,11 @@ def compute_features_weights_per_client(
 
 def train_base(pool: FlexPool, n_rounds=100):
     clients = pool.clients
-    subsamples: Dataset = pool.servers.map(
+    subsamples, new_test_set = pool.servers.map(
         select_subsample_server_data, k=args.samples
     )[0]
+
+    pool._data["server"] = new_test_set
 
     must_have_clients = clients.select(lambda id, _: id in must_have_indices)
     other_clients = clients.select(lambda id, _: id not in must_have_indices)
