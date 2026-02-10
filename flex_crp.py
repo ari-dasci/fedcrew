@@ -1,544 +1,63 @@
-import argparse
-from copy import deepcopy
-from typing import List, Tuple
+"""FedCrew: Federated Learning with Conditional Relevance Propagation."""
 
-import matplotlib.pyplot as plt
-import numpy as np
-import torch
-from crp.attribution import CondAttribution
-from crp.concepts import ChannelConcept
-from crp.helper import get_layer_names
-from crp.image import imgify
-from flex.data import Dataset
-from flex.model import FlexModel
+from flex.data import Dataset, FedDataset
 from flex.pool import FlexPool, fed_avg, weighted_fed_avg
-from torch import nn
-from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
-from torchvision import transforms
 from tqdm import tqdm
-from zennit.canonizers import SequentialMergeBatchNorm
-from zennit.composites import EpsilonPlusFlat
 
+from config import ExperimentConfig, parse_args
 from datasets import get_dataset
-from models import get_transforms, get_relevance_layer
+from utils.crp_utils import (
+    compute_features_weights_per_client,
+    create_server_heatmap,
+)
+from utils.data_utils import select_subsample_server_data
 from utils.flex_boilerplate import (
     build_server_model,
-    copy_server_model_to_clients,
-    set_aggregated_weights_to_server,
-    get_clients_weights,
     clean_up_models,
-    causal_weighted_average,
+    copy_server_model_to_clients,
+    fedcrew_weighted_average,
+    get_clients_weights,
+    set_aggregated_weights_to_server,
 )
-from utils.prueba_crp import extract_heatmap
-from utils.fedprox import fedprox_regularization
 from utils.fednova import get_fednova_iters, obtain_fednova_weights
-import wandb
-
-assert torch.cuda.is_available(), "CUDA not available"
-device = "cuda"
-
-round_number = 0
-parser = argparse.ArgumentParser(
-    description="Conditional Relevance Propagation for Causal Learning"
+from utils.logging_utils import (
+    finish_logging,
+    log_client_metrics,
+    log_server_metrics,
+    LoggerState,
+    setup_logging,
 )
-parser.add_argument(
-    "--dataset",
-    type=str,
-    choices=[
-        "cifar_10",
-        "cifar_10_non_iid",
-        "celeba",
-        "celeba_a",
-        "celeba_m",
-        "mnist_non_iid",
-    ],
-    default="cifar_10",
-    help="Dataset to use",
-)
-parser.add_argument(
-    "--clients", type=int, default=100, help="Number of clients per round"
-)
-parser.add_argument(
-    "--causal",
-    action="store_true",
-    help="Whether use the causal ponderated aggregation",
-)
+from utils.training import obtain_metrics, train
 
-parser.add_argument(
-    "--lognum", type=int, default=0, help="Number of logs to keep in the tensorboard"
-)
-
-parser.add_argument("--epochs", type=int, default=10, help="Number of epochs to train")
-parser.add_argument(
-    "--batchsize",
-    type=int,
-    default=64,
-    help="Batch size to use for training on clients",
-)
-parser.add_argument(
-    "--clipgradients", action="store_true", help="Whether to clip gradients"
-)
-
-parser.add_argument(
-    "--samples", type=int, default=2, help="Number of samples per class to select"
-)
-
-parser.add_argument(
-    "--no_log", action="store_true", help="If activated, no logs will be saved"
-)
-parser.add_argument(
-    "--fedprox",
-    type=float,
-    default=0.0,
-    help="FedProx regularization factor, set to 0.0 to disable",
-)
-parser.add_argument(
-    "--fednova",
-    action="store_true",
-    help="Whether to use FedNova",
-)
-parser.add_argument("--rounds", type=int, default=100, help="Number of rounds")
-parser.add_argument("--l1", type=float, default=0.0, help="L1 regularization factor")
-parser.add_argument("--l2", type=float, default=0.0, help="L2 regularization factor")
-parser.add_argument(
-    "--alpha",
-    type=float,
-    default=0.5,
-    help="Threshold for counting a sample as correct",
-)
-parser.add_argument(
-    "--l2_fc",
-    type=float,
-    default=0.0,
-    help="L2 regularization factor for fc layer (proximal term for fc only)",
-)
-args = parser.parse_args()
-
-CLIENTS_PER_ROUND = args.clients
-EPOCHS = args.epochs
-
-AGG = (
-    causal_weighted_average
-    if args.causal
-    else (weighted_fed_avg if args.fednova else fed_avg)
-)
+# Backward compatibility: also import old name
 
 
-def get_summary_writer_filename(args):
-    parts = [
-        "causal" if args.causal else "avg",
-        f"samples{args.samples}",
-        "l1" if args.l1 > 0.0 else "",
-        "l2" if args.l2 > 0.0 else "",
-        f"lognum{args.lognum}" if args.lognum > 0 else "",
-        "sgd" if EPOCHS == 1 else "",
-        f"alpha{args.alpha}",
-        "l2_fc" if args.l2_fc > 0.0 else "",
-    ]
-    return f"runs/{args.dataset}/" + ".".join([part for part in parts if part])
+def train_pool(
+    pool: FlexPool,
+    config: ExperimentConfig,
+    logger: LoggerState,
+    flex_dataset: FedDataset,
+    test_data: Dataset,
+    must_have_indices: list,
+) -> None:
+    """Run the federated learning training loop.
 
-
-def get_wandb_run_name(args):
-    def _get_aggregator(args):
-        if args.causal:
-            return "causal"
-        elif args.fednova:
-            return "fednova"
-        elif args.fedprox > 0.0:
-            return "fedprox"
-        else:
-            return "fedavg"
-
-    parts = [
-        _get_aggregator(args),
-        f"samples{args.samples}",
-        "l1" if args.l1 > 0.0 else "",
-        "l2" if args.l2 > 0.0 else "",
-        f"lognum{args.lognum}" if args.lognum > 0 else "",
-        f"client_epochs{EPOCHS}",
-        f"alpha{args.alpha}",
-        "l2_fc" if args.l2_fc > 0.0 else "",
-    ]
-    return ".".join([part for part in parts if part])
-
-
-writer = SummaryWriter(get_summary_writer_filename(args)) if not args.no_log else None
-wandb.login()
-run = (
-    wandb.init(
-        project="crp_aggregation",
-        name=get_wandb_run_name(args),
-        config=vars(args),
-    )
-    if not args.no_log
-    else None
-)
-
-flex_dataset, test_data, must_have_indices = get_dataset(args.dataset)
-client_ids = list(flex_dataset.keys())
-
-print(f"Running options: {args}")
-
-data_transforms = get_transforms(args.dataset)
-
-
-def train(
-    client_flex_model: FlexModel,
-    client_data: Dataset,
-    l1_factor=args.l1,
-    fedprox_factor=args.fedprox,
-    fednova=args.fednova,
-    l2_fc_factor=args.l2_fc,
-):
-    train_dataset = client_data.to_torchvision_dataset(transform=data_transforms)
-    client_dataloader = DataLoader(
-        train_dataset, batch_size=args.batchsize, shuffle=True
-    )
-    model = client_flex_model["model"]
-    optimizer = client_flex_model["optimizer_func"](
-        model.parameters(), **client_flex_model["optimizer_kwargs"]
-    )
-    model = model.train()
-    model = model.to(device)
-    criterion = client_flex_model["criterion"]
-    number_iterations = 0
-    for _ in range(EPOCHS):
-        for images, labels in client_dataloader:
-            number_iterations += 1
-            images, labels = images.to(device), labels.to(device)
-            optimizer.zero_grad()
-            pred = model(images)
-            loss = criterion(pred, labels)
-            if l1_factor > 0.0:
-                # TODO: fc is hardcoded
-                l1_loss = sum(p.abs().sum() for p in model.fc.parameters())
-                loss += l1_factor * l1_loss
-
-            if l2_fc_factor > 0.0:
-                server_fc = client_flex_model["server_model"].fc
-                l2_loss = torch.sum(
-                    torch.stack(
-                        [
-                            ((p - server_p.to(device)).pow(2).sum() / p.numel())
-                            for p, server_p in zip(
-                                model.fc.parameters(), server_fc.parameters()
-                            )
-                        ]
-                    )
-                )
-                loss += l2_fc_factor * l2_loss
-
-            if fedprox_factor > 0.0:
-                fedprox_loss = fedprox_regularization(
-                    model, client_flex_model["server_model"], mu=fedprox_factor
-                )
-                loss += fedprox_loss
-
-            loss.backward()
-            optimizer.step()
-
-    if fednova:
-        client_flex_model["fednova_iters"] = number_iterations
-
-
-def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset, is_server=True):
-    model = server_flex_model["model"]
-    model.eval()
-    test_acc = 0
-    total_count = 0
-    model = model.to(device)
-    criterion = server_flex_model["criterion"]
-    # get test data as a torchvision object
-    test_dataset = test_data.to_torchvision_dataset(transform=data_transforms)
-    test_dataloader = DataLoader(
-        test_dataset, batch_size=args.batchsize, shuffle=True, pin_memory=False
-    )
-    losses = []
-    confusion_matrix = torch.zeros(2, 2)
-
-    with torch.no_grad():
-        for data, target in test_dataloader:
-            total_count += target.size(0)
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            losses.append(criterion(output, target).item())
-            pred = output.data.max(1, keepdim=True)[1]
-            test_acc += pred.eq(target.data.view_as(pred)).long().cpu().sum().item()
-
-            # Update confusion matrix
-            for t, p in zip(target.cpu().view(-1), pred.cpu().view(-1)):
-                confusion_matrix[t.long(), p.long()] += 1
-
-    confusion_matrix = confusion_matrix.cpu().numpy()
-    test_loss = sum(losses) / len(losses)
-    test_acc /= total_count
-
-    return test_loss, test_acc, confusion_matrix
-
-
-def obtain_accuracy(server_flex_model: FlexModel, test_data: Dataset):
-    return obtain_metrics(server_flex_model, test_data)[1]
-
-
-def select_subsample_server_data(_, dataset: Dataset, k=2) -> Tuple[Dataset, Dataset]:
+    Args:
+        pool: FlexPool with clients and servers.
+        config: Experiment configuration.
+        logger: Logger state for tensorboard/wandb.
+        flex_dataset: Federated dataset.
+        test_data: Test dataset.
+        must_have_indices: Indices of clients that must participate in every round.
     """
-    :param _: server flex_model
-    :param dataset: server dataset
-    :param k: how many samples per class to select
-    :return: a Dataset object with k samples per class
-    """
-    from flex.data import LazyIndexable
-
-    print("Creating subsample")
-    labels: LazyIndexable = dataset.y_data
-    if args.dataset == "waterbirds":
-        labels = [(label[0], label[1]) for label in labels]
-    if args.dataset == "colored_mnist":
-        data = dataset.X_data
-        labels = [
-            (label, torch.argmax(img.sum(dim=(1, 2))).item())
-            for label, img in zip(labels, data)
-        ]
-    labels_to_indices = {label: [] for label in labels}
-
-    for i, label in enumerate(labels):
-        if len(labels_to_indices[label]) < k:
-            labels_to_indices[label].append(i)
-
-    indices = [v for v in labels_to_indices.values()]
-    indices = [i for sublist in indices for i in sublist]
-    new_dataset: Dataset = dataset[indices]
-
-    # Remove indices from the original dataset
-    indices_not_included = np.arange(len(dataset))
-    indices_not_included = np.setdiff1d(indices_not_included, np.array(indices))
-    new_x_data = LazyIndexable(
-        dataset.X_data, indices_not_included.shape[0], indices_not_included
-    )
-    new_y_data = LazyIndexable(
-        dataset.y_data, indices_not_included.shape[0], indices_not_included
-    )
-    new_test_dataset = Dataset(X_data=new_x_data, y_data=new_y_data)
-
-    torch_data = new_dataset.to_torchvision_dataset()
-    transform = transforms.ToTensor()
-    for i in range(len(torch_data)):
-        sample = transform(torch_data[i][0])
-        sample = np.copy(sample.cpu().numpy())
-        if sample.shape[0] == 1 or sample.shape[0] == 3:
-            sample = np.transpose(sample, (1, 2, 0))
-        if writer:
-            writer.add_image(f"sample/{i}", transform(sample), 0)
-            assert run is not None, "WandB run is not initialized"
-            run.log(
-                {f"Samples/Sample_{i}": wandb.Image(sample)},
-                step=round_number,
-            )
-
-    return new_dataset, new_test_dataset
-
-
-def load_client_model(
-    original_model: nn.Module,
-    collected_weights: List[List[torch.Tensor]],
-    client_id: int,
-):
-    """
-    :param original_model: Pytorch module with the neural network where the weights will be loaded
-    :param collected_weights: A list of all collected weights, generated by a collect_clients_weights function
-    :param client_id: Index of client
-    :return: A copy of the original model with the weights of the client_id-th client loaded
-    """
-    assert client_id < len(
-        collected_weights
-    ), f"Client ID out of bounds, {client_id} >= {len(collected_weights)}"
-    client_weights = collected_weights[client_id]
-    new_model = deepcopy(original_model).to(device)
-    with torch.no_grad():
-        weight_dict = new_model.state_dict()
-        for layer_key, new in zip(weight_dict, client_weights):
-            weight_dict[layer_key].copy_(weight_dict[layer_key].to(device) + new)
-    return new_model
-
-
-def create_client_heatmaps(
-    server_model: FlexModel, _: Dataset, subsample_dataset: Dataset
-):
-    print("Extracting heatmaps")
-    model = server_model["model"].to(device)
-    weights = server_model["weights"]
-    for client_id in range(len(weights)):
-        client_model = load_client_model(model, weights, client_id)
-        client_crp(client_model, client_id, subsample_dataset)
-
-
-def create_server_heatmap(
-    server_model: FlexModel, _: Dataset, subsample_dataset: Dataset
-):
-    model = server_model["model"]
-    client_crp(deepcopy(model).to(device), "server", subsample_dataset)
-
-
-def client_crp(client_model: nn.Module, client_id: int, sample_dataset: Dataset):
-    data = sample_dataset.to_torchvision_dataset()
-    for sample_id in range(len(data)):
-        sample, label = data[sample_id]
-        heatmap, _ = extract_heatmap(
-            client_model,
-            layer=get_relevance_layer(args.dataset),
-            transforms=data_transforms,
-            sample=sample,
-            label=label,
-        )
-        img = imgify(heatmap, cmap="seismic", symmetric=True, grid=(1, 5))
-        transform = transforms.PILToTensor()
-        if writer:
-            writer.add_image(
-                f"crp/client_{client_id}/image_{sample_id}",
-                transform(img),
-                round_number,
-            )
-            assert run is not None, "WandB run is not initialized"
-            run.log(
-                {f"CRP/Client_{client_id}/Image_{sample_id}": wandb.Image(img)},
-                step=round_number,
-            )
-
-
-def group_correct_class_probs(model: nn.Module, sample_dataset: Dataset):
-    """
-    :param model: Client neural network model
-    :param sample_dataset: Datasets with samples of each class. Exactly balanced
-    :return: List with tuples (label, correct_class_prob) for each sample in the dataset
-    """
-    dataset = sample_dataset.to_torchvision_dataset(transform=data_transforms)
-    model.to(device)
-    model.eval()
-
-    dataloader = DataLoader(dataset, batch_size=args.batchsize)
-    logits = {}
-
-    with torch.no_grad():
-        for inputs, labels in dataloader:
-            inputs = inputs.to(device)
-            labels = labels.to(device)
-
-            sample_logits = model(inputs)  # shape: (batch_size, num_classes)
-            probs = torch.softmax(
-                sample_logits, dim=1
-            )  # shape: (batch_size, num_classes)
-
-            # labels.unsqueeze(1) changes shape from (batch_size,) to (batch_size, 1)
-            # gather returns a tensor of shape (batch_size, 1), which we squeeze to (batch_size,)
-            correct_class_probs = probs.gather(1, labels.unsqueeze(1)).squeeze(1)
-
-            for label, prob in zip(
-                labels.cpu().numpy(), correct_class_probs.cpu().numpy()
-            ):
-                label = int(label)
-                if label not in logits:
-                    logits[label] = []
-
-                logits[label].append(prob)
-    for label in logits:
-        if any(prob < 0.5 for prob in logits[label]):
-            logits[label] = [0.0] * len(logits[label])
-    return logits
-
-
-def get_crp_attribution(model: nn.Module, sample_dataset: Dataset, layer: str):
-    dataset = sample_dataset.to_torchvision_dataset(transform=data_transforms)
-    dataloader = DataLoader(dataset, batch_size=1)
-
-    canonizers = [SequentialMergeBatchNorm()]
-    composite = EpsilonPlusFlat(canonizers)
-    cc = ChannelConcept()
-    layer_names = get_layer_names(model, [torch.nn.Conv2d, torch.nn.Linear])
-    attribution = CondAttribution(model)
-
-    contributions = {}
-
-    for sample, label in dataloader:
-        sample = data_transforms(sample.squeeze()).to(device)
-        sample = sample.unsqueeze(0)
-        sample.requires_grad = True
-
-        conditions = [{"y": [label]}]
-        attr = attribution(sample, conditions, composite, record_layer=layer_names)
-        rel_c = cc.attribute(attr.relevances[layer], abs_norm=True)
-        rel_c = rel_c[0]
-        rel_c_min = torch.min(rel_c)
-        rel_c_max = torch.max(rel_c)
-        rel_c = (rel_c - rel_c_min) / (rel_c_max - rel_c_min)
-        if isinstance(label, torch.Tensor):
-            label = label.item()
-        if label not in contributions:
-            contributions[label] = []
-        contributions[label].append(rel_c)
-
-    contributions = {
-        label: torch.stack(contributions[label]) for label in contributions
-    }
-
-    return contributions
-
-
-def compute_features_weights_per_client(
-    server_model: FlexModel, _, subsamples: Dataset, alpha: float = args.alpha
-):
-    print("Running round CRP")
-    model = server_model["model"]
-    weights = server_model["weights"]
-
-    clients_probs = {}
-    clients_relevances = {}
-
-    for client_id in range(len(weights)):
-        client_model = load_client_model(model, weights, client_id)
-        clients_probs[client_id] = group_correct_class_probs(
-            client_model, subsamples
-        )  # Dict with id -> (Dict with label -> [prob])
-        clients_relevances[client_id] = get_crp_attribution(
-            client_model, subsamples, get_relevance_layer(args.dataset)
-        )  # Dict with id -> (Dict with label -> [relevance])
-
-    # We assume that all labels are present in `subsamples`
-    labels = sorted(list(clients_probs[0].keys()))
-    client_features_weights = {}
-
-    for label in labels:
-        # Order matters, we need to keep the order of the clients
-        label_probs = torch.tensor(
-            [clients_probs[client_id][label] for client_id in range(len(weights))],
-            dtype=torch.float32,
-        ).to(device)
-        label_probs = torch.where(
-            label_probs > alpha, label_probs, torch.finfo().min
-        )  # softmax(-inf) = 0
-        sample_weight = torch.softmax(label_probs.flatten(), dim=0).view(
-            *label_probs.shape
-        )  # (n_clients, n_samples)
-        label_relevances = torch.stack(
-            [clients_relevances[client_id][label] for client_id in range(len(weights))]
-        ).to(
-            device
-        )  # (n_clients, n_samples, n_features)
-
-        weights_features_clients = torch.sum(
-            label_relevances * sample_weight.unsqueeze(-1), dim=1
-        )  # (n_clients, n_features)
-        client_features_weights[label] = weights_features_clients
-
-    return torch.stack(
-        [client_features_weights[label] for label in labels], dim=0
-    )  # (n_labels, n_clients, n_features)
-
-
-def train_base(pool: FlexPool, n_rounds=100):
     clients = pool.clients
+
     subsamples, new_test_set = pool.servers.map(
-        select_subsample_server_data, k=args.samples
+        select_subsample_server_data,
+        config=config,
+        logger=logger,
+        round_number=0,
+        k=config.samples,
     )[0]
 
     pool._data["server"] = new_test_set
@@ -546,127 +65,112 @@ def train_base(pool: FlexPool, n_rounds=100):
     must_have_clients = clients.select(lambda id, _: id in must_have_indices)
     other_clients = clients.select(lambda id, _: id not in must_have_indices)
 
-    for i in tqdm(range(n_rounds)):
-        global round_number
-        round_number = i
+    AGG = (
+        fedcrew_weighted_average
+        if config.fedcrew
+        else (weighted_fed_avg if config.fednova else fed_avg)
+    )
 
-        selected_clients = other_clients.select(
-            CLIENTS_PER_ROUND - len(must_have_clients)
-        )
+    for round_number in tqdm(range(config.rounds)):
+        selected_clients = other_clients.select(config.clients - len(must_have_clients))
+
         pool.servers.map(copy_server_model_to_clients, selected_clients)
         pool.servers.map(copy_server_model_to_clients, must_have_clients)
 
-        selected_clients.map(train)
-        must_have_clients.map(train)
-        if (round_number + 1) % 5 == 0 and writer:
+        selected_clients.map(train, config=config, device=logger.device)
+        must_have_clients.map(train, config=config, device=logger.device)
+
+        # Log client metrics every 5 rounds
+        if (round_number + 1) % 5 == 0 and logger.writer:
             client_metrics = selected_clients.map(
-                obtain_metrics, is_server=False
-            ) + must_have_clients.map(obtain_metrics, is_server=False)
-            losses = [loss for loss, _, _ in client_metrics]
-            accs = [acc for _, acc, _ in client_metrics]
-
-            if losses:  # Ensure metrics were collected
-                avg_loss = sum(losses) / len(losses)
-                median_loss = np.median(losses)
-                max_loss = max(losses)
-                min_loss = min(losses)
-                writer.add_scalar("Average Client Loss", avg_loss, round_number)
-                writer.add_scalar("Median Client Loss", median_loss, round_number)
-                writer.add_scalar("Max Client Loss", max_loss, round_number)
-                writer.add_scalar("Min Client Loss", min_loss, round_number)
-                assert run is not None, "WandB run is not initialized"
-                run.log(
-                    {
-                        "Client/Average Loss": avg_loss,
-                        "Client/Median Loss": median_loss,
-                        "Client/Max Loss": max_loss,
-                        "Client/Min Loss": min_loss,
-                    },
-                    step=round_number,
-                )
-
-            if accs:  # Ensure metrics were collected
-                avg_acc = sum(accs) / len(accs)
-                median_acc = np.median(accs)
-                max_acc = max(accs)
-                min_acc = min(accs)
-                writer.add_scalar("Average Client Accuracy", avg_acc, round_number)
-                writer.add_scalar("Median Client Accuracy", median_acc, round_number)
-                writer.add_scalar("Max Client Accuracy", max_acc, round_number)
-                writer.add_scalar("Min Client Accuracy", min_acc, round_number)
-                assert run is not None, "WandB run is not initialized"
-                run.log(
-                    {
-                        "Client/Average Accuracy": avg_acc,
-                        "Client/Median Accuracy": median_acc,
-                        "Client/Max Accuracy": max_acc,
-                        "Client/Min Accuracy": min_acc,
-                    },
-                    step=round_number,
-                )
+                obtain_metrics, config=config, device=logger.device
+            ) + must_have_clients.map(
+                obtain_metrics, config=config, device=logger.device
+            )
+            log_client_metrics(logger, client_metrics, round_number)
 
         pool.aggregators.map(get_clients_weights, selected_clients)
         pool.aggregators.map(get_clients_weights, must_have_clients)
+
         ponderation_list = (
             obtain_fednova_weights(
                 selected_clients.map(get_fednova_iters)
                 + must_have_clients.map(get_fednova_iters)
             )
-            if args.fednova
+            if config.fednova
             else []
         )
+
         selected_clients.map(clean_up_models)
 
         ponderation_tensor = (
             pool.servers.map(
-                compute_features_weights_per_client, subsamples=subsamples
+                compute_features_weights_per_client,
+                subsamples=subsamples,
+                config=config,
+                device=logger.device,
             )[0]
-            if args.causal
+            if config.fedcrew
             else None
         )
 
-        if args.causal:
+        # Aggregate weights
+        if config.fedcrew:
             pool.aggregators.map(AGG, ponderation_tensor=ponderation_tensor)
-        elif args.fednova:
+        elif config.fednova:
             pool.aggregators.map(AGG, ponderation=ponderation_list)
         else:
             pool.aggregators.map(AGG)
+
         pool.aggregators.map(set_aggregated_weights_to_server, pool.servers)
 
+        # Create server heatmap every 5 rounds (after first round)
         if (round_number + 1) % 5 == 0 and round_number > 0:
-            pool.servers.map(create_server_heatmap, subsample_dataset=subsamples)
-
-        loss, acc, confusion_matrix = pool.servers.map(obtain_metrics)[0]
-        if writer:
-            writer.add_scalar("Loss", loss, round_number)
-            writer.add_scalar("Accuracy", acc, round_number)
-            assert run is not None, "WandB run is not initialized"
-            run.log({"Server/Loss": loss, "Server/Accuracy": acc}, step=round_number)
-            fig = plt.figure()
-            plt.imshow(confusion_matrix)
-            plt.show()
-            writer.add_figure("confusion_matrix", fig, round_number)
-            run.log(
-                {"Server/Confusion_Matrix": wandb.Image(fig)},
-                step=round_number,
+            pool.servers.map(
+                create_server_heatmap,
+                subsample_dataset=subsamples,
+                config=config,
+                logger=logger,
+                round_number=round_number,
+                device=logger.device,
             )
+
+        loss, acc, confusion_matrix = pool.servers.map(
+            obtain_metrics, config=config, device=logger.device
+        )[0]
+
+        if logger.writer:
+            log_server_metrics(logger, loss, acc, confusion_matrix, round_number)
+
         print(f"ROUND {round_number}: loss {loss:7}, acc {acc:7}")
 
 
-def run_server_pool():
-    global flex_dataset
-    global test_data
+def run_server_pool(config: ExperimentConfig, logger: LoggerState) -> None:
+    """Initialize and run the federated learning server pool.
+
+    Args:
+        config: Experiment configuration.
+        logger: Logger state for tensorboard/wandb.
+    """
+    flex_dataset, test_data, must_have_indices = get_dataset(config.dataset)
     flex_dataset["server"] = test_data
+
     pool = FlexPool.client_server_pool(
-        flex_dataset, build_server_model, dataset=args.dataset, l2_factor=args.l2
+        flex_dataset, build_server_model, dataset=config.dataset, l2_factor=config.l2
     )
-    train_base(pool, n_rounds=args.rounds)
+
+    train_pool(pool, config, logger, flex_dataset, test_data, must_have_indices)
 
 
-def main():
-    run_server_pool()
-    if run:
-        run.finish()
+def main() -> None:
+    """Main entry point."""
+    config = parse_args()
+    logger = setup_logging(config)
+
+    try:
+        run_server_pool(config, logger)
+    finally:
+        finish_logging(logger)
 
 
 if __name__ == "__main__":

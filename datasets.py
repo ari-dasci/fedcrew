@@ -161,6 +161,16 @@ def _non_iid_mnist():
     return train, test, []
 
 
+# Number of classes for each dataset
+DATASET_NUM_CLASSES = {
+    "celeba": 2,
+    "celeba_a": 2,
+    "celeba_m": 2,
+    "cifar_10_non_iid": 10,
+    "cifar_10": 10,
+    "mnist_non_iid": 10,
+}
+
 DATASET_CONFIG = {
     "celeba": DatasetConfig(loader=_celeba_non_iid),
     "celeba_a": DatasetConfig(loader=lambda: _celeba_non_iid(label=2)),
@@ -176,3 +186,20 @@ def get_dataset(dataset: str) -> Tuple[FedDataset, Dataset, List[int]]:
     if config is None:
         raise ValueError(f"Unknown dataset: {dataset}")
     return config.loader()
+
+
+def get_num_classes(dataset: str) -> int:
+    """Get the number of classes for a dataset.
+
+    Args:
+        dataset: Name of the dataset.
+
+    Returns:
+        Number of classes in the dataset.
+
+    Raises:
+        ValueError: If the dataset is not recognized.
+    """
+    if dataset not in DATASET_NUM_CLASSES:
+        raise ValueError(f"Unknown dataset: {dataset}")
+    return DATASET_NUM_CLASSES[dataset]

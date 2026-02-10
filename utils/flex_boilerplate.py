@@ -105,7 +105,7 @@ def clean_up_models(client_model: FlexModel, _):
 
 
 @aggregate_weights
-def causal_weighted_average(
+def fedcrew_weighted_average(
     weights: List[List[torch.Tensor]], ponderation_tensor: torch.Tensor, bias=False
 ):
     transposed_weights = list(zip(*weights))
@@ -146,3 +146,7 @@ def scalable_softmax(input: torch.Tensor, dim=-1):
     n = input.size(dim=dim)
     n = torch.tensor(n, device="cuda")
     return torch.softmax(input * torch.log(n), dim=dim)
+
+
+# Backward compatibility alias
+causal_weighted_average = fedcrew_weighted_average
