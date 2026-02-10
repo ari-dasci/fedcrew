@@ -1,12 +1,12 @@
-# FedCrew: Federated Learning with Concept Relevance Propagation
+# FedCReW: Federated Concept Relevance Weigthing
 
-FedCrew is a novel federated learning approach that uses Concept Relevance Propagation (CRP) to intelligently weight client contributions during aggregation. Unlike traditional federated averaging, FedCrew identifies which clients have learned the most relevant features for each class by analyzing concept relevance heatmaps.
+FedCReW is a novel federated learning approach that uses Concept Relevance Propagation (CRP) to intelligently weight client contributions during aggregation. Unlike traditional federated averaging, FedCReW identifies which clients have learned the most relevant features for each class by analyzing concept relevance heatmaps.
 
-![FedCrew Architecture](diagram.jpg)
+![FedCReW Architecture](diagram.jpg)
 
 ## How It Works
 
-FedCrew operates in three key phases during each federation round:
+FedCReW operates in three key phases during each federation round:
 
 ### 1. Client Training
 - **Clients** train their local models (composed of a shared Backbone $f$ and a classification Head $g$) on their private data
@@ -69,7 +69,7 @@ or run everything by prexifing `uv run` to the following commands.
 
 ### Basic Usage
 
-Run FedCrew on CIFAR-10, with 25 clients per round and 10 epochs of local training per round:
+Run FedCReW on CIFAR-10, with 25 clients per round and 10 epochs of local training per round:
 
 ```bash
 python main.py --dataset cifar_10 --fedcrew --rounds 100 --clients 25 --epochs 10
@@ -81,7 +81,7 @@ python main.py --dataset cifar_10 --fedcrew --rounds 100 --clients 25 --epochs 1
 |----------|-------------|---------|
 | `--dataset` | Dataset to use: `cifar_10`, `cifar_10_non_iid`, `celeba`, `celeba_a`, `celeba_m`, `mnist_non_iid` | `cifar_10` |
 | `--clients` | Number of clients per round | 100 |
-| `--fedcrew` | Enable FedCrew weighted aggregation | False |
+| `--fedcrew` | Enable FedCReW weighted aggregation | False |
 | `--rounds` | Number of federation rounds | 100 |
 | `--epochs` | Number of local epochs per client | 10 |
 | `--batchsize` | Batch size for training | 64 |
@@ -97,7 +97,7 @@ python main.py --dataset cifar_10 --fedcrew --rounds 100 --clients 25 --epochs 1
 
 ### Examples
 
-**FedCrew on CelebA (2-class classification):**
+**FedCReW on CelebA (2-class classification):**
 ```bash
 python main.py --dataset celeba --fedcrew --samples 5 --rounds 50
 ```
@@ -112,7 +112,7 @@ python main.py --dataset cifar_10 --rounds 100
 python main.py --dataset cifar_10_non_iid --fedprox 0.01 --rounds 100
 ```
 
-**Non-IID CIFAR-10 with FedCrew:**
+**Non-IID CIFAR-10 with FedCReW:**
 ```bash
 python main.py --dataset cifar_10_non_iid --fedcrew --samples 3 --rounds 100
 ```
@@ -143,7 +143,7 @@ Datasets are automatically downloaded on first use and cached locally.
 ## Key Features
 
 - **Modular Design**: Clean separation of training, CRP analysis, and logging
-- **Multiple Aggregation Methods**: Support for FedAvg, FedProx, FedNova, and FedCrew
+- **Multiple Aggregation Methods**: Support for FedAvg, FedProx, FedNova, and FedCReW
 - **Flexible Configuration**: All hyperparameters configurable via command line
 - **Comprehensive Logging**: TensorBoard and W&B integration for experiment tracking
 - **Type Safety**: Full type hints throughout the codebase
