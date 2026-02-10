@@ -27,7 +27,7 @@ FedCrew operates in three key phases during each federation round:
 ## Repository Structure
 
 ```
-├── flex_crp.py              # Main entry point and training loop
+├── main.py                  # Main entry point and training loop
 ├── config.py                # Experiment configuration and argument parsing
 ├── datasets.py              # Dataset loading and configuration
 ├── models.py                # Model architectures
@@ -72,7 +72,7 @@ or run everything by prexifing `uv run` to the following commands.
 Run FedCrew on CIFAR-10, with 25 clients per round and 10 epochs of local training per round:
 
 ```bash
-python flex_crp.py --dataset cifar_10 --fedcrew --rounds 100 --clients 25 --epochs 10
+python main.py --dataset cifar_10 --fedcrew --rounds 100 --clients 25 --epochs 10
 ```
 
 ### Command Line Arguments
@@ -99,22 +99,22 @@ python flex_crp.py --dataset cifar_10 --fedcrew --rounds 100 --clients 25 --epoc
 
 **FedCrew on CelebA (2-class classification):**
 ```bash
-python flex_crp.py --dataset celeba --fedcrew --samples 5 --rounds 50
+python main.py --dataset celeba --fedcrew --samples 5 --rounds 50
 ```
 
 **Standard FedAvg baseline:**
 ```bash
-python flex_crp.py --dataset cifar_10 --rounds 100
+python main.py --dataset cifar_10 --rounds 100
 ```
 
 **FedProx:**
 ```bash
-python flex_crp.py --dataset cifar_10_non_iid --fedprox 0.01 --rounds 100
+python main.py --dataset cifar_10_non_iid --fedprox 0.01 --rounds 100
 ```
 
 **Non-IID CIFAR-10 with FedCrew:**
 ```bash
-python flex_crp.py --dataset cifar_10_non_iid --fedcrew --samples 3 --rounds 100
+python main.py --dataset cifar_10_non_iid --fedcrew --samples 3 --rounds 100
 ```
 
 ## Logging
