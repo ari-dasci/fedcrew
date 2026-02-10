@@ -1,4 +1,3 @@
-from PIL.Image import new
 import argparse
 from copy import deepcopy
 from typing import List, Tuple
@@ -10,7 +9,7 @@ from crp.attribution import CondAttribution
 from crp.concepts import ChannelConcept
 from crp.helper import get_layer_names
 from crp.image import imgify
-from flex.data import Dataset, LazyIndexable
+from flex.data import Dataset
 from flex.model import FlexModel
 from flex.pool import FlexPool, fed_avg, weighted_fed_avg
 from torch import nn
@@ -49,12 +48,9 @@ parser.add_argument(
     choices=[
         "cifar_10",
         "cifar_10_non_iid",
-        "imagenet",
         "celeba",
         "celeba_a",
         "celeba_m",
-        "waterbirds",
-        "colored_mnist",
         "mnist_non_iid",
     ],
     default="cifar_10",
@@ -86,10 +82,6 @@ parser.add_argument(
 
 parser.add_argument(
     "--samples", type=int, default=2, help="Number of samples per class to select"
-)
-
-parser.add_argument(
-    "--f", type=int, default=1, help="Parameter for the Krum aggregation operator"
 )
 
 parser.add_argument(
@@ -191,12 +183,6 @@ print(f"Running options: {args}")
 data_transforms = get_transforms(args.dataset)
 
 
-def select_waterbirds_label(dataset: Dataset):
-    y_data = [y[0] for y in dataset.y_data]
-    y_data = LazyIndexable(y_data, len(y_data))
-    return Dataset(X_data=dataset.X_data, y_data=y_data)
-
-
 def train(
     client_flex_model: FlexModel,
     client_data: Dataset,
@@ -257,9 +243,6 @@ def train(
 
 
 def obtain_metrics(server_flex_model: FlexModel, test_data: Dataset, is_server=True):
-    if "waterbirds" in args.dataset and is_server:
-        test_data = select_waterbirds_label(test_data)
-
     model = server_flex_model["model"]
     model.eval()
     test_acc = 0
@@ -337,9 +320,6 @@ def select_subsample_server_data(_, dataset: Dataset, k=2) -> Tuple[Dataset, Dat
         dataset.y_data, indices_not_included.shape[0], indices_not_included
     )
     new_test_dataset = Dataset(X_data=new_x_data, y_data=new_y_data)
-
-    if args.dataset == "waterbirds":
-        new_dataset = select_waterbirds_label(new_dataset)
 
     torch_data = new_dataset.to_torchvision_dataset()
     transform = transforms.ToTensor()
