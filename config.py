@@ -167,7 +167,7 @@ def _create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--alpha",
         type=float,
-        default=0.5,
+        default=0.0,
         help="Threshold for counting a sample as correct",
     )
     parser.add_argument(
