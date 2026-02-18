@@ -62,6 +62,7 @@ def setup_logging(config: ExperimentConfig) -> LoggerState:
                 "l2": config.l2,
                 "alpha": config.alpha,
                 "l2_fc": config.l2_fc,
+                "seed": config.seed,
             },
         )
 

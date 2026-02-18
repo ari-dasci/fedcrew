@@ -1,6 +1,7 @@
 """Configuration module for experiment settings."""
 
 from dataclasses import dataclass
+from typing import Optional
 import argparse
 import warnings
 
@@ -26,6 +27,7 @@ class ExperimentConfig:
         l2: L2 regularization factor (weight decay)
         alpha: Threshold for counting sample as correct in CRP
         l2_fc: L2 regularization factor for FC layer only
+        seed: Optional random seed for reproducibility (None means no seed)
     """
 
     dataset: str
@@ -44,6 +46,7 @@ class ExperimentConfig:
     l2: float
     alpha: float
     l2_fc: float
+    seed: Optional[int] = None
 
     @property
     def causal(self) -> bool:
@@ -72,6 +75,7 @@ class ExperimentConfig:
             "sgd" if self.epochs == 1 else "",
             f"alpha{self.alpha}",
             "l2_fc" if self.l2_fc > 0.0 else "",
+            "seeded" if self.seed is not None else "",
         ]
         return f"runs/{self.dataset}/" + ".".join([part for part in parts if part])
 
@@ -86,6 +90,7 @@ class ExperimentConfig:
             f"client_epochs{self.epochs}",
             f"alpha{self.alpha}",
             "l2_fc" if self.l2_fc > 0.0 else "",
+            "seeded" if self.seed is not None else "",
         ]
         return ".".join([part for part in parts if part])
 
@@ -176,6 +181,12 @@ def _create_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="L2 regularization factor for fc layer (proximal term for fc only)",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducibility (omit to disable seeding)",
+    )
     return parser
 
 
@@ -214,4 +225,5 @@ def parse_args() -> ExperimentConfig:
         l2=args.l2,
         alpha=args.alpha,
         l2_fc=args.l2_fc,
+        seed=args.seed,
     )

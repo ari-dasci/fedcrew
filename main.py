@@ -27,6 +27,7 @@ from utils.logging_utils import (
     LoggerState,
     setup_logging,
 )
+from utils.seed_utils import seed_everything
 from utils.training import obtain_metrics, train
 
 # Backward compatibility: also import old name
@@ -165,6 +166,8 @@ def run_server_pool(config: ExperimentConfig, logger: LoggerState) -> None:
 def main() -> None:
     """Main entry point."""
     config = parse_args()
+    if config.seed is not None:
+        seed_everything(config.seed)
     logger = setup_logging(config)
 
     try:

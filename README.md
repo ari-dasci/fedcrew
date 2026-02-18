@@ -94,6 +94,7 @@ python main.py --dataset cifar_10 --fedcrew --rounds 100 --clients 25 --epochs 1
 | `--l2_fc` | L2 regularization for FC layer only | 0.0 |
 | `--no_log` | Disable logging | False |
 | `--lognum` | Log directory suffix number | 0 |
+| `--seed` | Set a seed for deterministic experimentation | None |
 
 ### Examples
 
