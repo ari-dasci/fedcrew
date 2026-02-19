@@ -237,7 +237,7 @@ def get_crp_attribution(
     layer_names = get_layer_names(model, [torch.nn.Conv2d, torch.nn.Linear])
     attribution = CondAttribution(model)
 
-    contributions: Dict[int, List[torch.Tensor]] = {}
+    contributions: dict = {}
 
     for sample, label in dataloader:
         sample = data_transforms(sample.squeeze()).to(device)
@@ -259,11 +259,11 @@ def get_crp_attribution(
         contributions[label].append(rel_c)
 
     # Stack contributions per label
-    contributions = {
+    result: Dict[int, torch.Tensor] = {
         label: torch.stack(contributions[label]) for label in contributions
     }
 
-    return contributions
+    return result
 
 
 def compute_features_weights_per_client(

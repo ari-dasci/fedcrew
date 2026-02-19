@@ -1,7 +1,7 @@
 """Logging utilities for experiments."""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -197,7 +197,7 @@ def log_samples(
 def log_crp_heatmap(
     logger: LoggerState,
     img,
-    client_id: int,
+    client_id: Union[int, str],
     sample_id: int,
     round_number: int,
 ) -> None:

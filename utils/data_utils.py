@@ -1,6 +1,6 @@
 """Data utilities for federated learning."""
 
-from typing import Tuple
+from typing import Iterable, Tuple, cast
 
 import numpy as np
 import torch
@@ -33,19 +33,21 @@ def select_subsample_server_data(
         Tuple of (selected_subsample, remaining_test_dataset).
     """
     print("Creating subsample")
-    labels: LazyIndexable = dataset.y_data
+    assert dataset.y_data is not None, "dataset.y_data cannot be None"
+    labels = list(cast(Iterable, dataset.y_data))
 
     if config.dataset == "waterbirds":
         labels = [(label[0], label[1]) for label in labels]
 
     if config.dataset == "colored_mnist":
         data = dataset.X_data
+        assert data is not None, "dataset.X_data cannot be None"
         labels = [
             (label, torch.argmax(img.sum(dim=(1, 2))).item())
-            for label, img in zip(labels, data)
+            for label, img in zip(labels, cast(Iterable, data))
         ]
 
-    labels_to_indices = {label: [] for label in labels}
+    labels_to_indices: dict = {label: [] for label in labels}
 
     for i, label in enumerate(labels):
         if len(labels_to_indices[label]) < k:
@@ -58,11 +60,17 @@ def select_subsample_server_data(
     # Remove indices from the original dataset
     indices_not_included = np.arange(len(dataset))
     indices_not_included = np.setdiff1d(indices_not_included, np.array(indices))
+    assert dataset.X_data is not None, "dataset.X_data cannot be None"
+    assert dataset.y_data is not None, "dataset.y_data cannot be None"
     new_x_data = LazyIndexable(
-        dataset.X_data, indices_not_included.shape[0], indices_not_included
+        cast(Iterable, dataset.X_data),
+        indices_not_included.shape[0],
+        indices_not_included,
     )
     new_y_data = LazyIndexable(
-        dataset.y_data, indices_not_included.shape[0], indices_not_included
+        cast(Iterable, dataset.y_data),
+        indices_not_included.shape[0],
+        indices_not_included,
     )
     new_test_dataset = Dataset(X_data=new_x_data, y_data=new_y_data)
 

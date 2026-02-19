@@ -45,7 +45,7 @@ def extract_heatmap(
         rel_indices = torch.argsort(rel_c[0])
     else:
         _, rel_indices = torch.topk(rel_c[0], k=k)
-    conditions = [{"y": label, layer: [feat_id]} for feat_id in rel_indices]
+    conditions: list[dict] = [{"y": label, layer: [feat_id]} for feat_id in rel_indices]
     heatmap, _, _, _ = attribution(
         sample, conditions, composite
     )  # (k, img_size, img_size)
@@ -73,7 +73,7 @@ if __name__ == "__main__":
         preprocess_transform(img_1).cpu().numpy().transpose(1, 2, 0),
     )
     final_transforms = transforms.Compose(
-        [preprocess_transform, ResNet18_Weights.DEFAULT.data_transforms()]
+        [preprocess_transform, ResNet18_Weights.DEFAULT.transforms()]
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
