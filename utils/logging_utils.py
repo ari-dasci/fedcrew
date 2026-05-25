@@ -48,6 +48,7 @@ def setup_logging(config: ExperimentConfig) -> LoggerState:
         run = wandb.init(
             project="crp_aggregation",
             name=config.get_wandb_run_name(),
+            group=config.wandb_group,
             config={
                 "dataset": config.dataset,
                 "clients": config.clients,
@@ -63,6 +64,12 @@ def setup_logging(config: ExperimentConfig) -> LoggerState:
                 "alpha": config.alpha,
                 "l2_fc": config.l2_fc,
                 "seed": config.seed,
+                "causal_mode": config.causal_mode,
+                "causal_crp": config.causal_crp,
+                "causal_logits": config.causal_logits,
+                "anchor_selection": config.anchor_selection,
+                "anchor_seed": config.anchor_seed,
+                "wandb_group": config.wandb_group,
             },
         )
 

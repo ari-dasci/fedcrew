@@ -47,6 +47,12 @@ class ExperimentConfig:
     alpha: float
     l2_fc: float
     seed: Optional[int] = None
+    causal_mode: str = "full"
+    causal_crp: bool = True
+    causal_logits: bool = True
+    anchor_selection: str = "first"
+    anchor_seed: Optional[int] = None
+    wandb_group: Optional[str] = None
 
     @property
     def causal(self) -> bool:
@@ -76,6 +82,9 @@ class ExperimentConfig:
             f"alpha{self.alpha}",
             "l2_fc" if self.l2_fc > 0.0 else "",
             "seeded" if self.seed is not None else "",
+            self.causal_mode if self.fedcrew else "",
+            self.anchor_selection if self.fedcrew else "",
+            f"anchor{self.anchor_seed}" if self.anchor_seed is not None else "",
         ]
         return f"runs/{self.dataset}/" + ".".join([part for part in parts if part])
 
@@ -91,6 +100,9 @@ class ExperimentConfig:
             f"alpha{self.alpha}",
             "l2_fc" if self.l2_fc > 0.0 else "",
             "seeded" if self.seed is not None else "",
+            self.causal_mode if self.fedcrew else "",
+            self.anchor_selection if self.fedcrew else "",
+            f"anchor{self.anchor_seed}" if self.anchor_seed is not None else "",
         ]
         return ".".join([part for part in parts if part])
 
@@ -127,6 +139,40 @@ def _create_parser() -> argparse.ArgumentParser:
         "--causal",
         action="store_true",
         help=argparse.SUPPRESS,  # Hidden from help, for backward compatibility
+    )
+    parser.add_argument(
+        "--causal-mode",
+        choices=["full", "crp_only", "logits_only"],
+        default="full",
+        help="Select which causal components to enable",
+    )
+    parser.add_argument(
+        "--causal-crp",
+        action="store_true",
+        help="Enable CRP relevance scoring",
+    )
+    parser.add_argument(
+        "--causal-logits",
+        action="store_true",
+        help="Enable logits-based DS scoring",
+    )
+    parser.add_argument(
+        "--anchor-selection",
+        choices=["first", "random"],
+        default="first",
+        help="How to choose the anchor samples",
+    )
+    parser.add_argument(
+        "--anchor-seed",
+        type=int,
+        default=None,
+        help="Seed used when anchor selection is random",
+    )
+    parser.add_argument(
+        "--wandb-group",
+        type=str,
+        default=None,
+        help="W&B group name for related runs",
     )
     parser.add_argument(
         "--lognum",
@@ -208,6 +254,27 @@ def parse_args() -> ExperimentConfig:
         )
         args.fedcrew = True
 
+    causal_crp = args.causal_crp
+    causal_logits = args.causal_logits
+    if not causal_crp and not causal_logits:
+        if args.causal_mode == "crp_only":
+            causal_crp = True
+        elif args.causal_mode == "logits_only":
+            causal_logits = True
+        else:
+            causal_crp = True
+            causal_logits = True
+
+    if args.causal_mode == "crp_only":
+        causal_crp = True
+        causal_logits = False
+    elif args.causal_mode == "logits_only":
+        causal_crp = False
+        causal_logits = True
+    elif not args.causal_crp and not args.causal_logits:
+        causal_crp = True
+        causal_logits = True
+
     return ExperimentConfig(
         dataset=args.dataset,
         clients=args.clients,
@@ -226,4 +293,10 @@ def parse_args() -> ExperimentConfig:
         alpha=args.alpha,
         l2_fc=args.l2_fc,
         seed=args.seed,
+        causal_mode=args.causal_mode,
+        causal_crp=causal_crp,
+        causal_logits=causal_logits,
+        anchor_selection=args.anchor_selection,
+        anchor_seed=args.anchor_seed,
+        wandb_group=args.wandb_group,
     )

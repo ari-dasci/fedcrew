@@ -1,5 +1,6 @@
 """Data utilities for federated learning."""
 
+import random
 from typing import Iterable, Tuple, cast
 
 import numpy as np
@@ -9,6 +10,30 @@ from torchvision import transforms
 
 from config import ExperimentConfig
 from utils.logging_utils import LoggerState, log_samples
+
+
+def select_label_indices(
+    labels: list,
+    k: int,
+    selection: str = "first",
+    seed: int | None = None,
+) -> list[int]:
+    """Select k indices per label using a deterministic strategy."""
+    grouped: dict = {}
+    for index, label in enumerate(labels):
+        grouped.setdefault(label, []).append(index)
+
+    if selection == "random":
+        rng = random.Random(seed)
+        chosen = []
+        for label in grouped:
+            chosen.extend(rng.sample(grouped[label], k=min(k, len(grouped[label]))))
+        return chosen
+
+    chosen = []
+    for label in grouped:
+        chosen.extend(grouped[label][:k])
+    return chosen
 
 
 def select_subsample_server_data(
@@ -47,14 +72,12 @@ def select_subsample_server_data(
             for label, img in zip(labels, cast(Iterable, data))
         ]
 
-    labels_to_indices: dict = {label: [] for label in labels}
-
-    for i, label in enumerate(labels):
-        if len(labels_to_indices[label]) < k:
-            labels_to_indices[label].append(i)
-
-    indices = [v for v in labels_to_indices.values()]
-    indices = [i for sublist in indices for i in sublist]
+    indices = select_label_indices(
+        labels,
+        k=k,
+        selection=getattr(config, "anchor_selection", "first"),
+        seed=getattr(config, "anchor_seed", None),
+    )
     new_dataset: Dataset = dataset[indices]
 
     # Remove indices from the original dataset

@@ -288,52 +288,71 @@ def compute_features_weights_per_client(
     print("Running round CRP")
     model = server_model["model"]
     weights = server_model["weights"]
+    feature_dim = model.fc.weight.shape[1]
 
     clients_probs: Dict[int, Dict[int, List[float]]] = {}
     clients_relevances: Dict[int, Dict[int, torch.Tensor]] = {}
 
+    use_crp = config.causal_crp
+    use_logits = config.causal_logits
+
     for client_id in range(len(weights)):
         client_model = load_client_model(model, weights, client_id, device)
-        clients_probs[client_id] = group_correct_class_probs(
-            client_model, subsamples, config, device
-        )
-        clients_relevances[client_id] = get_crp_attribution(
-            client_model,
-            subsamples,
-            get_relevance_layer(config.dataset),
-            config,
-            device,
-        )
+        if use_logits:
+            clients_probs[client_id] = group_correct_class_probs(
+                client_model, subsamples, config, device
+            )
+        if use_crp:
+            clients_relevances[client_id] = get_crp_attribution(
+                client_model,
+                subsamples,
+                get_relevance_layer(config.dataset),
+                config,
+                device,
+            )
 
     # We assume that all labels are present in `subsamples`
-    labels = sorted(list(clients_probs[0].keys()))
+    label_source = clients_probs if use_logits else clients_relevances
+    labels = sorted(list(label_source[0].keys()))
     client_features_weights: Dict[int, torch.Tensor] = {}
 
     for label in labels:
-        # Order matters, we need to keep the order of the clients
-        label_probs = torch.tensor(
-            [clients_probs[client_id][label] for client_id in range(len(weights))],
-            dtype=torch.float32,
-        ).to(device)
+        if use_logits and use_crp:
+            label_probs = torch.tensor(
+                [clients_probs[client_id][label] for client_id in range(len(weights))],
+                dtype=torch.float32,
+            ).to(device)
 
-        # Softmax(-inf) = 0, so we set low probs to -inf
-        label_probs = torch.where(
-            label_probs > config.alpha,
-            label_probs,
-            torch.finfo().min,
-        )
+            label_probs = torch.where(
+                label_probs > config.alpha,
+                label_probs,
+                torch.finfo().min,
+            )
 
-        sample_weight = torch.softmax(label_probs.flatten(), dim=0).view(
-            *label_probs.shape
-        )  # (n_clients, n_samples)
+            sample_weight = torch.softmax(label_probs.flatten(), dim=0).view(
+                *label_probs.shape
+            )
 
-        label_relevances = torch.stack(
-            [clients_relevances[client_id][label] for client_id in range(len(weights))]
-        ).to(device)  # (n_clients, n_samples, n_features)
+            label_relevances = torch.stack(
+                [clients_relevances[client_id][label] for client_id in range(len(weights))]
+            ).to(device)
 
-        weights_features_clients = torch.sum(
-            label_relevances * sample_weight.unsqueeze(-1), dim=1
-        )  # (n_clients, n_features)
+            weights_features_clients = torch.sum(
+                label_relevances * sample_weight.unsqueeze(-1), dim=1
+            )
+        elif use_logits:
+            label_probs = torch.tensor(
+                [clients_probs[client_id][label] for client_id in range(len(weights))],
+                dtype=torch.float32,
+            ).to(device)
+            label_probs = label_probs.mean(dim=1, keepdim=True)
+            weights_features_clients = label_probs.expand(-1, feature_dim)
+        else:
+            label_relevances = torch.stack(
+                [clients_relevances[client_id][label] for client_id in range(len(weights))]
+            ).to(device)
+            weights_features_clients = label_relevances.mean(dim=1)
+
         client_features_weights[label] = weights_features_clients
 
     return torch.stack(
