@@ -24,3 +24,5 @@ data/
 
 wandb/
 *.pt
+
+docs/
