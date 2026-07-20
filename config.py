@@ -57,6 +57,9 @@ class ExperimentConfig:
     predictions_dir: str = "predictions"
     crp_maps_dir: str = "crp_maps"
     save_final_artifacts: bool = True
+    moon: bool = False
+    moon_mu: float = 1.0
+    moon_tau: float = 0.5
 
     @property
     def causal(self) -> bool:
@@ -69,6 +72,8 @@ class ExperimentConfig:
             return "fedcrew"
         elif self.fednova:
             return "fednova"
+        elif self.moon:
+            return "moon"
         elif self.fedprox > 0.0:
             return "fedprox"
         else:
@@ -89,6 +94,9 @@ class ExperimentConfig:
             self.causal_mode if self.fedcrew else "",
             self.anchor_selection if self.fedcrew else "",
             f"anchor{self.anchor_seed}" if self.anchor_seed is not None else "",
+            "moon" if self.moon else "",
+            f"moon_mu{self.moon_mu}" if self.moon and self.moon_mu != 1.0 else "",
+            f"moon_tau{self.moon_tau}" if self.moon and self.moon_tau != 0.5 else "",
         ]
         return f"runs/{self.dataset}/" + ".".join([part for part in parts if part])
 
@@ -107,6 +115,8 @@ class ExperimentConfig:
             self.causal_mode if self.fedcrew else "",
             self.anchor_selection if self.fedcrew else "",
             f"anchor{self.anchor_seed}" if self.anchor_seed is not None else "",
+            f"moon_mu{self.moon_mu}" if self.moon and self.moon_mu != 1.0 else "",
+            f"moon_tau{self.moon_tau}" if self.moon and self.moon_tau != 0.5 else "",
         ]
         return ".".join([part for part in parts if part])
 
@@ -283,6 +293,23 @@ def _create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip saving the final-round checkpoint/predictions/CRP maps",
     )
+    parser.add_argument(
+        "--moon",
+        action="store_true",
+        help="Whether to use MOON's model-contrastive client-side regularization",
+    )
+    parser.add_argument(
+        "--moon-mu",
+        type=float,
+        default=1.0,
+        help="MOON contrastive loss weight (mu)",
+    )
+    parser.add_argument(
+        "--moon-tau",
+        type=float,
+        default=0.5,
+        help="MOON contrastive loss temperature (tau)",
+    )
     return parser
 
 
@@ -353,4 +380,7 @@ def parse_args() -> ExperimentConfig:
         predictions_dir=args.predictions_dir,
         crp_maps_dir=args.crp_maps_dir,
         save_final_artifacts=not args.no_final_artifacts,
+        moon=args.moon,
+        moon_mu=args.moon_mu,
+        moon_tau=args.moon_tau,
     )

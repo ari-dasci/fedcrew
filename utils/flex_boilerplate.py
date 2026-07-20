@@ -100,7 +100,12 @@ def create_transfer_model(server_flex_model: FlexModel, _):
 def clean_up_models(client_model: FlexModel, _):
     import gc
 
+    # Preserve MOON's "previous local model" across the clear -- it must
+    # survive to the client's next participation round.
+    prev_model = client_model.get("prev_model")
     client_model.clear()
+    if prev_model is not None:
+        client_model["prev_model"] = prev_model
     gc.collect()
 
 

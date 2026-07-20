@@ -1,5 +1,6 @@
 """Training utilities for federated learning."""
 
+import copy
 from typing import Tuple
 
 import numpy as np
@@ -12,6 +13,7 @@ from config import ExperimentConfig
 from datasets import get_num_classes
 from models import get_transforms
 from utils.fedprox import fedprox_regularization
+from utils.moon import get_representation, moon_contrastive_loss
 
 
 def train(
@@ -79,12 +81,33 @@ def train(
                 )
                 loss += fedprox_loss
 
+            # MOON model-contrastive regularization
+            if config.moon:
+                server_model = client_flex_model["server_model"].to(device).eval()
+                prev_model = client_flex_model.get("prev_model")
+                z = get_representation(model, images)
+                with torch.no_grad():
+                    z_glob = get_representation(server_model, images)
+                    z_prev = (
+                        get_representation(prev_model.to(device).eval(), images)
+                        if prev_model is not None
+                        else None
+                    )
+                if z_prev is not None:
+                    loss += config.moon_mu * moon_contrastive_loss(
+                        z, z_glob, z_prev, tau=config.moon_tau
+                    )
+
             loss.backward()
             optimizer.step()
 
     # Store iteration count for FedNova
     if config.fednova:
         client_flex_model["fednova_iters"] = number_iterations
+
+    # Store this round's trained model as the client's "previous" model for MOON
+    if config.moon:
+        client_flex_model["prev_model"] = copy.deepcopy(model).cpu()
 
 
 def obtain_metrics(

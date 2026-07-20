@@ -132,3 +132,40 @@ def test_no_final_artifacts_flag_disables_saving(monkeypatch):
     config = parse_args()
 
     assert config.save_final_artifacts is False
+
+
+def test_moon_flags_parse_and_are_reflected_in_names(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--dataset",
+            "celeba",
+            "--clients",
+            "30",
+            "--rounds",
+            "100",
+            "--epochs",
+            "5",
+            "--samples",
+            "3",
+            "--alpha",
+            "0.65",
+            "--l1",
+            "0.01",
+            "--moon",
+            "--moon-mu",
+            "2.0",
+            "--moon-tau",
+            "0.1",
+        ],
+    )
+
+    config = parse_args()
+
+    assert config.moon is True
+    assert config.moon_mu == 2.0
+    assert config.moon_tau == 0.1
+    assert config.get_aggregator_name() == "moon"
+    assert "moon" in config.get_wandb_run_name()
