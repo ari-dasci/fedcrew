@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from config import parse_args
+from config import ExperimentConfig, parse_args
 
 
 def test_causal_alias_enables_full_mode_and_metadata_flags(monkeypatch):
@@ -40,3 +40,95 @@ def test_causal_alias_enables_full_mode_and_metadata_flags(monkeypatch):
     assert config.causal_logits is True
     assert config.anchor_selection == "first"
     assert config.anchor_seed is None
+
+
+def test_final_artifact_paths_encode_dataset_method_seed_and_round():
+    config = ExperimentConfig(
+        dataset="celeba",
+        clients=30,
+        fedcrew=True,
+        lognum=0,
+        epochs=5,
+        batchsize=64,
+        clipgradients=False,
+        samples=3,
+        no_log=True,
+        fedprox=0.0,
+        fednova=False,
+        rounds=100,
+        l1=0.01,
+        l2=0.0,
+        alpha=0.65,
+        l2_fc=0.0,
+        seed=7,
+    )
+
+    checkpoint_path = config.get_checkpoint_path(99)
+    predictions_path = config.get_predictions_path(99)
+    crp_map_path = config.get_crp_map_path(99, "server", 0)
+
+    for path in (checkpoint_path, predictions_path, crp_map_path):
+        assert config.dataset in path
+        assert "seeded" in path
+        assert "round99" in path
+        assert "fedcrew" in path
+
+    assert crp_map_path.endswith("client_server/sample0.pt")
+
+
+def test_final_artifact_paths_use_configured_directories():
+    config = ExperimentConfig(
+        dataset="celeba",
+        clients=30,
+        fedcrew=True,
+        lognum=0,
+        epochs=5,
+        batchsize=64,
+        clipgradients=False,
+        samples=3,
+        no_log=True,
+        fedprox=0.0,
+        fednova=False,
+        rounds=100,
+        l1=0.01,
+        l2=0.0,
+        alpha=0.65,
+        l2_fc=0.0,
+        seed=7,
+        checkpoint_dir="ckpt_root",
+        predictions_dir="preds_root",
+        crp_maps_dir="crp_root",
+    )
+
+    assert config.get_checkpoint_path(0).startswith("ckpt_root/")
+    assert config.get_predictions_path(0).startswith("preds_root/")
+    assert config.get_crp_map_path(0, 1, 2).startswith("crp_root/")
+
+
+def test_no_final_artifacts_flag_disables_saving(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--dataset",
+            "celeba",
+            "--clients",
+            "30",
+            "--rounds",
+            "100",
+            "--epochs",
+            "5",
+            "--samples",
+            "3",
+            "--alpha",
+            "0.65",
+            "--l1",
+            "0.01",
+            "--no-final-artifacts",
+        ],
+    )
+
+    config = parse_args()
+
+    assert config.save_final_artifacts is False

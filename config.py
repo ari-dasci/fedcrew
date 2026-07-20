@@ -53,6 +53,10 @@ class ExperimentConfig:
     anchor_selection: str = "first"
     anchor_seed: Optional[int] = None
     wandb_group: Optional[str] = None
+    checkpoint_dir: str = "checkpoints"
+    predictions_dir: str = "predictions"
+    crp_maps_dir: str = "crp_maps"
+    save_final_artifacts: bool = True
 
     @property
     def causal(self) -> bool:
@@ -105,6 +109,29 @@ class ExperimentConfig:
             f"anchor{self.anchor_seed}" if self.anchor_seed is not None else "",
         ]
         return ".".join([part for part in parts if part])
+
+    def get_checkpoint_path(self, round_number: int) -> str:
+        """Path for saving the final global model checkpoint."""
+        return (
+            f"{self.checkpoint_dir}/{self.dataset}/{self.get_wandb_run_name()}"
+            f"/round{round_number}.pt"
+        )
+
+    def get_predictions_path(self, round_number: int) -> str:
+        """Path for saving final-round per-sample predictions/logits."""
+        return (
+            f"{self.predictions_dir}/{self.dataset}/{self.get_wandb_run_name()}"
+            f"/round{round_number}.pt"
+        )
+
+    def get_crp_map_path(
+        self, round_number: int, client_id: object, sample_id: int
+    ) -> str:
+        """Path for saving a raw final-round CRP relevance map tensor."""
+        return (
+            f"{self.crp_maps_dir}/{self.dataset}/{self.get_wandb_run_name()}"
+            f"/round{round_number}/client_{client_id}/sample{sample_id}.pt"
+        )
 
 
 def _create_parser() -> argparse.ArgumentParser:
@@ -233,6 +260,29 @@ def _create_parser() -> argparse.ArgumentParser:
         default=None,
         help="Random seed for reproducibility (omit to disable seeding)",
     )
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=str,
+        default="checkpoints",
+        help="Directory to save final-round model checkpoints",
+    )
+    parser.add_argument(
+        "--predictions-dir",
+        type=str,
+        default="predictions",
+        help="Directory to save final-round per-sample predictions/logits",
+    )
+    parser.add_argument(
+        "--crp-maps-dir",
+        type=str,
+        default="crp_maps",
+        help="Directory to save final-round raw CRP relevance maps",
+    )
+    parser.add_argument(
+        "--no-final-artifacts",
+        action="store_true",
+        help="Skip saving the final-round checkpoint/predictions/CRP maps",
+    )
     return parser
 
 
@@ -299,4 +349,8 @@ def parse_args() -> ExperimentConfig:
         anchor_selection=args.anchor_selection,
         anchor_seed=args.anchor_seed,
         wandb_group=args.wandb_group,
+        checkpoint_dir=args.checkpoint_dir,
+        predictions_dir=args.predictions_dir,
+        crp_maps_dir=args.crp_maps_dir,
+        save_final_artifacts=not args.no_final_artifacts,
     )

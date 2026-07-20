@@ -1,5 +1,6 @@
 """CRP (Conditional Relevance Propagation) utilities."""
 
+import os
 from copy import deepcopy
 from typing import Dict, List, Union
 
@@ -61,6 +62,7 @@ def client_crp(
     logger: LoggerState,
     round_number: int,
     device: str = "cuda",
+    save_raw: bool = False,
 ) -> None:
     """Generate and log CRP heatmaps for a client model.
 
@@ -72,6 +74,8 @@ def client_crp(
         logger: Logger state for tensorboard/wandb.
         round_number: Current federation round.
         device: Device to run on.
+        save_raw: If True, also persist the raw relevance tensor (pre-render)
+            to disk for later quantitative reanalysis.
     """
     data = sample_dataset.to_torchvision_dataset()
     data_transforms = get_transforms(config.dataset)
@@ -87,6 +91,11 @@ def client_crp(
         )
         img = imgify(heatmap, cmap="seismic", symmetric=True, grid=(1, 5))
         log_crp_heatmap(logger, img, client_id, sample_id, round_number)
+
+        if save_raw:
+            path = config.get_crp_map_path(round_number, client_id, sample_id)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            torch.save(heatmap.detach().cpu(), path)
 
 
 def create_client_heatmaps(
@@ -134,6 +143,7 @@ def create_server_heatmap(
     logger: LoggerState,
     round_number: int,
     device: str = "cuda",
+    save_raw: bool = False,
 ) -> None:
     """Create heatmap for the server model.
 
@@ -145,6 +155,8 @@ def create_server_heatmap(
         logger: Logger state for tensorboard/wandb.
         round_number: Current federation round.
         device: Device to run on.
+        save_raw: If True, also persist the raw relevance tensor (pre-render)
+            to disk for later quantitative reanalysis.
     """
     model = server_model["model"]
     client_crp(
@@ -155,6 +167,7 @@ def create_server_heatmap(
         logger,
         round_number,
         device,
+        save_raw=save_raw,
     )
 
 

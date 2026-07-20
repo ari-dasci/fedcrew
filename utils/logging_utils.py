@@ -1,5 +1,6 @@
 """Logging utilities for experiments."""
 
+import os
 from dataclasses import dataclass
 from typing import Optional, Union
 
@@ -234,6 +235,28 @@ def log_crp_heatmap(
         {f"CRP/Client_{client_id}/Image_{sample_id}": wandb.Image(img)},
         step=round_number,
     )
+
+
+def save_predictions(
+    predictions: dict,
+    config: ExperimentConfig,
+    round_number: int,
+) -> None:
+    """Save final-round per-sample predictions/logits to disk.
+
+    Unlike the other `log_*` functions in this module, this is not gated on
+    `logger.writer`/`logger.run` being set up (i.e. not skipped by `--no_log`)
+    since it persists the scientific artifact needed for later per-class
+    metric computation, not a monitoring convenience.
+
+    Args:
+        predictions: Dict with "logits", "preds", "targets" tensors.
+        config: Experiment configuration.
+        round_number: Current federation round.
+    """
+    path = config.get_predictions_path(round_number)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    torch.save(predictions, path)
 
 
 def finish_logging(logger: LoggerState) -> None:

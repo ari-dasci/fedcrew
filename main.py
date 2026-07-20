@@ -10,6 +10,7 @@ from utils.crp_utils import (
     compute_features_weights_per_client,
     create_server_heatmap,
 )
+from utils.checkpoint_utils import save_checkpoint
 from utils.data_utils import select_subsample_server_data
 from utils.flex_boilerplate import (
     build_server_model,
@@ -25,10 +26,11 @@ from utils.logging_utils import (
     log_client_metrics,
     log_server_metrics,
     LoggerState,
+    save_predictions,
     setup_logging,
 )
 from utils.seed_utils import seed_everything
-from utils.training import obtain_metrics, train
+from utils.training import obtain_metrics, obtain_metrics_with_predictions, train
 
 # Backward compatibility: also import old name
 
@@ -73,6 +75,7 @@ def train_pool(
     )
 
     for round_number in tqdm(range(config.rounds)):
+        is_final_round = round_number == config.rounds - 1
         selected_clients = other_clients.select(config.clients - len(must_have_clients))
 
         pool.servers.map(copy_server_model_to_clients, selected_clients)
@@ -125,8 +128,12 @@ def train_pool(
 
         pool.aggregators.map(set_aggregated_weights_to_server, pool.servers)
 
-        # Create server heatmap every 5 rounds (after first round)
-        if (round_number + 1) % 5 == 0 and round_number > 0:
+        if is_final_round and config.save_final_artifacts:
+            pool.servers.map(save_checkpoint, config=config, round_number=round_number)
+
+        # Create server heatmap every 5 rounds (after first round), and always
+        # at the final round for the fully-instrumented re-run.
+        if ((round_number + 1) % 5 == 0 and round_number > 0) or is_final_round:
             pool.servers.map(
                 create_server_heatmap,
                 subsample_dataset=subsamples,
@@ -134,11 +141,19 @@ def train_pool(
                 logger=logger,
                 round_number=round_number,
                 device=logger.device,
+                save_raw=is_final_round and config.save_final_artifacts,
             )
 
-        loss, acc, confusion_matrix = pool.servers.map(
-            obtain_metrics, config=config, device=logger.device
-        )[0]
+        if is_final_round:
+            loss, acc, confusion_matrix, predictions = pool.servers.map(
+                obtain_metrics_with_predictions, config=config, device=logger.device
+            )[0]
+            if config.save_final_artifacts:
+                save_predictions(predictions, config, round_number)
+        else:
+            loss, acc, confusion_matrix = pool.servers.map(
+                obtain_metrics, config=config, device=logger.device
+            )[0]
 
         if logger.writer:
             log_server_metrics(logger, loss, acc, confusion_matrix, round_number)

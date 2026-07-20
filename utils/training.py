@@ -143,6 +143,80 @@ def obtain_metrics(
     return test_loss, test_acc, confusion_matrix
 
 
+def obtain_metrics_with_predictions(
+    server_flex_model: FlexModel,
+    test_data: Dataset,
+    config: ExperimentConfig,
+    device: str = "cuda",
+) -> Tuple[float, float, np.ndarray, dict]:
+    """Compute metrics on test data, also capturing per-sample logits/predictions.
+
+    Unlike `obtain_metrics`, the test dataloader is not shuffled so that the
+    returned predictions/targets have a stable, reproducible sample ordering
+    that can be joined against `test_data` later for per-class analysis.
+
+    Args:
+        server_flex_model: Model to evaluate.
+        test_data: Test dataset.
+        config: Experiment configuration.
+        device: Device to evaluate on.
+
+    Returns:
+        Tuple of (loss, accuracy, confusion_matrix, predictions), where
+        predictions is a dict with "logits" (FloatTensor[N, num_classes]),
+        "preds" (LongTensor[N]), and "targets" (LongTensor[N]).
+    """
+    model = server_flex_model["model"]
+    model.eval()
+    test_acc = 0
+    total_count = 0
+    model = model.to(device)
+    criterion = server_flex_model["criterion"]
+
+    data_transforms = get_transforms(config.dataset)
+    test_dataset = test_data.to_torchvision_dataset(transform=data_transforms)
+    test_dataloader = DataLoader(
+        test_dataset, batch_size=config.batchsize, shuffle=False, pin_memory=False
+    )
+
+    losses = []
+    all_logits = []
+    all_preds = []
+    all_targets = []
+
+    num_classes = get_num_classes(config.dataset)
+    confusion_matrix = torch.zeros(num_classes, num_classes)
+
+    with torch.no_grad():
+        for data, target in test_dataloader:
+            total_count += target.size(0)
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            losses.append(criterion(output, target).item())
+            pred = output.data.max(1, keepdim=True)[1]
+            test_acc += pred.eq(target.data.view_as(pred)).long().cpu().sum().item()
+
+            # Update confusion matrix
+            for t, p in zip(target.cpu().view(-1), pred.cpu().view(-1)):
+                confusion_matrix[t.long(), p.long()] += 1
+
+            all_logits.append(output.cpu())
+            all_preds.append(pred.view(-1).cpu())
+            all_targets.append(target.cpu())
+
+    confusion_matrix = confusion_matrix.cpu().numpy()
+    test_loss = sum(losses) / len(losses)
+    test_acc /= total_count
+
+    predictions = {
+        "logits": torch.cat(all_logits, dim=0),
+        "preds": torch.cat(all_preds, dim=0),
+        "targets": torch.cat(all_targets, dim=0),
+    }
+
+    return test_loss, test_acc, confusion_matrix, predictions
+
+
 def obtain_accuracy(
     server_flex_model: FlexModel,
     test_data: Dataset,
