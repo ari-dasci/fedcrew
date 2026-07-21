@@ -26,3 +26,27 @@ def save_checkpoint(
     path = config.get_checkpoint_path(round_number)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(server_flex_model["model"].state_dict(), path)
+
+
+def save_alignment_matrices(
+    alignment: dict,
+    config: ExperimentConfig,
+    round_number: int,
+) -> None:
+    """Persist the raw pairwise CKA / fc-divergence matrices to disk.
+
+    Args:
+        alignment: Dict with "cka_matrix"/"fc_divergence_matrix" tensors (see
+            `utils.alignment_utils.compute_client_alignment`).
+        config: Experiment configuration.
+        round_number: Current federation round.
+    """
+    path = config.get_alignment_path(round_number)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    torch.save(
+        {
+            "cka_matrix": alignment["cka_matrix"],
+            "fc_divergence_matrix": alignment["fc_divergence_matrix"],
+        },
+        path,
+    )

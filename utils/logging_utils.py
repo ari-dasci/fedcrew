@@ -10,7 +10,7 @@ import torch
 import wandb
 from torch.utils.tensorboard import SummaryWriter
 
-from config import ExperimentConfig
+from config import INSTRUMENTATION_VERSION, ExperimentConfig
 
 
 @dataclass
@@ -50,7 +50,9 @@ def setup_logging(config: ExperimentConfig) -> LoggerState:
             project="crp_aggregation",
             name=config.get_wandb_run_name(),
             group=config.wandb_group,
+            tags=config.get_wandb_tags(),
             config={
+                "instrumentation_version": INSTRUMENTATION_VERSION,
                 "dataset": config.dataset,
                 "clients": config.clients,
                 "fedcrew": config.fedcrew,
@@ -71,6 +73,10 @@ def setup_logging(config: ExperimentConfig) -> LoggerState:
                 "anchor_selection": config.anchor_selection,
                 "anchor_seed": config.anchor_seed,
                 "wandb_group": config.wandb_group,
+                "moon": config.moon,
+                "moon_mu": config.moon_mu,
+                "moon_tau": config.moon_tau,
+                "aggregator": config.get_aggregator_name(),
             },
         )
 
@@ -177,6 +183,39 @@ def log_server_metrics(
         step=round_number,
     )
     plt.close(fig)
+
+
+def log_alignment_metrics(
+    logger: LoggerState,
+    alignment: dict,
+    round_number: int,
+) -> None:
+    """Log CKA / classifier-head-divergence alignment metrics to tensorboard/wandb.
+
+    Args:
+        logger: Logger state containing writer and wandb run.
+        alignment: Dict with "cka_mean"/"fc_divergence_mean" scalars (see
+            `utils.alignment_utils.compute_client_alignment`).
+        round_number: Current federation round.
+    """
+    if logger.writer is None or logger.run is None:
+        return
+
+    cka_mean = float(alignment["cka_mean"])
+    fc_divergence_mean = float(alignment["fc_divergence_mean"])
+
+    logger.writer.add_scalar("Alignment/CKA_Mean", cka_mean, round_number)
+    logger.writer.add_scalar(
+        "Alignment/FC_Divergence_Mean", fc_divergence_mean, round_number
+    )
+
+    logger.run.log(
+        {
+            "Alignment/CKA_Mean": cka_mean,
+            "Alignment/FC_Divergence_Mean": fc_divergence_mean,
+        },
+        step=round_number,
+    )
 
 
 def log_samples(

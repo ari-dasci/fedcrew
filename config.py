@@ -1,9 +1,15 @@
 """Configuration module for experiment settings."""
 
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import List, Optional
 import argparse
 import warnings
+
+# Bumped whenever the logged/saved artifact schema changes (new config fields,
+# new checkpoint/prediction/CRP-map instrumentation, new aggregators, ...) so
+# WandB runs from before/after such a change can be bulk-filtered by tag
+# instead of parsing run names.
+INSTRUMENTATION_VERSION = "fgcs-revision-v1"
 
 
 @dataclass
@@ -56,10 +62,12 @@ class ExperimentConfig:
     checkpoint_dir: str = "checkpoints"
     predictions_dir: str = "predictions"
     crp_maps_dir: str = "crp_maps"
+    alignment_dir: str = "alignment"
     save_final_artifacts: bool = True
     moon: bool = False
     moon_mu: float = 1.0
     moon_tau: float = 0.5
+    wandb_tags: List[str] = field(default_factory=list)
 
     @property
     def causal(self) -> bool:
@@ -120,6 +128,11 @@ class ExperimentConfig:
         ]
         return ".".join([part for part in parts if part])
 
+    def get_wandb_tags(self) -> List[str]:
+        """WandB tags for this run: the instrumentation-revision tag (so old vs.
+        new runs can be bulk-filtered in one query) plus any user-supplied tags."""
+        return [INSTRUMENTATION_VERSION, *self.wandb_tags]
+
     def get_checkpoint_path(self, round_number: int) -> str:
         """Path for saving the final global model checkpoint."""
         return (
@@ -141,6 +154,13 @@ class ExperimentConfig:
         return (
             f"{self.crp_maps_dir}/{self.dataset}/{self.get_wandb_run_name()}"
             f"/round{round_number}/client_{client_id}/sample{sample_id}.pt"
+        )
+
+    def get_alignment_path(self, round_number: int) -> str:
+        """Path for saving raw final-round CKA/fc-divergence matrices."""
+        return (
+            f"{self.alignment_dir}/{self.dataset}/{self.get_wandb_run_name()}"
+            f"/round{round_number}.pt"
         )
 
 
@@ -179,9 +199,11 @@ def _create_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--causal-mode",
-        choices=["full", "crp_only", "logits_only"],
+        choices=["full", "crp_only", "logits_only", "uniform"],
         default="full",
-        help="Select which causal components to enable",
+        help="Select which causal components to enable. 'uniform' aggregates "
+        "the head with equal per-client weight (no CRP/logits scoring at all), "
+        "for the 4-way ablation's uniform-aggregation baseline",
     )
     parser.add_argument(
         "--causal-crp",
@@ -289,6 +311,12 @@ def _create_parser() -> argparse.ArgumentParser:
         help="Directory to save final-round raw CRP relevance maps",
     )
     parser.add_argument(
+        "--alignment-dir",
+        type=str,
+        default="alignment",
+        help="Directory to save CKA/fc-divergence alignment matrices",
+    )
+    parser.add_argument(
         "--no-final-artifacts",
         action="store_true",
         help="Skip saving the final-round checkpoint/predictions/CRP maps",
@@ -309,6 +337,14 @@ def _create_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.5,
         help="MOON contrastive loss temperature (tau)",
+    )
+    parser.add_argument(
+        "--wandb-tags",
+        type=str,
+        nargs="+",
+        default=[],
+        help="Extra WandB tags for this run (e.g. a sweep name), on top of the "
+        "automatic instrumentation-revision tag",
     )
     return parser
 
@@ -333,14 +369,6 @@ def parse_args() -> ExperimentConfig:
 
     causal_crp = args.causal_crp
     causal_logits = args.causal_logits
-    if not causal_crp and not causal_logits:
-        if args.causal_mode == "crp_only":
-            causal_crp = True
-        elif args.causal_mode == "logits_only":
-            causal_logits = True
-        else:
-            causal_crp = True
-            causal_logits = True
 
     if args.causal_mode == "crp_only":
         causal_crp = True
@@ -348,7 +376,11 @@ def parse_args() -> ExperimentConfig:
     elif args.causal_mode == "logits_only":
         causal_crp = False
         causal_logits = True
-    elif not args.causal_crp and not args.causal_logits:
+    elif args.causal_mode == "uniform":
+        causal_crp = False
+        causal_logits = False
+    elif not causal_crp and not causal_logits:
+        # causal_mode == "full" (default) with no explicit component flags
         causal_crp = True
         causal_logits = True
 
@@ -379,8 +411,10 @@ def parse_args() -> ExperimentConfig:
         checkpoint_dir=args.checkpoint_dir,
         predictions_dir=args.predictions_dir,
         crp_maps_dir=args.crp_maps_dir,
+        alignment_dir=args.alignment_dir,
         save_final_artifacts=not args.no_final_artifacts,
         moon=args.moon,
         moon_mu=args.moon_mu,
         moon_tau=args.moon_tau,
+        wandb_tags=args.wandb_tags,
     )

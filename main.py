@@ -6,11 +6,12 @@ from tqdm import tqdm
 
 from config import ExperimentConfig, parse_args
 from datasets import get_dataset
+from utils.alignment_utils import compute_client_alignment
 from utils.crp_utils import (
     compute_features_weights_per_client,
     create_server_heatmap,
 )
-from utils.checkpoint_utils import save_checkpoint
+from utils.checkpoint_utils import save_alignment_matrices, save_checkpoint
 from utils.data_utils import select_subsample_server_data
 from utils.flex_boilerplate import (
     build_server_model,
@@ -23,6 +24,7 @@ from utils.flex_boilerplate import (
 from utils.fednova import get_fednova_iters, obtain_fednova_weights
 from utils.logging_utils import (
     finish_logging,
+    log_alignment_metrics,
     log_client_metrics,
     log_server_metrics,
     LoggerState,
@@ -95,6 +97,21 @@ def train_pool(
 
         pool.aggregators.map(get_clients_weights, selected_clients)
         pool.aggregators.map(get_clients_weights, must_have_clients)
+
+        # Client-alignment (CKA / fc-divergence) diagnostics, every 5 rounds
+        # (after round 0) and at the final round, regardless of aggregator --
+        # must run before the AGG dispatch below resets the collected weights.
+        if ((round_number + 1) % 5 == 0 and round_number > 0) or is_final_round:
+            alignment = pool.servers.map(
+                compute_client_alignment,
+                subsamples=subsamples,
+                config=config,
+                device=logger.device,
+            )[0]
+            if logger.writer:
+                log_alignment_metrics(logger, alignment, round_number)
+            if is_final_round and config.save_final_artifacts:
+                save_alignment_matrices(alignment, config, round_number)
 
         ponderation_list = (
             obtain_fednova_weights(

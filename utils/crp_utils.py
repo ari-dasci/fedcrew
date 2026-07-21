@@ -17,6 +17,7 @@ from zennit.canonizers import SequentialMergeBatchNorm
 from zennit.composites import EpsilonPlusFlat
 
 from config import ExperimentConfig
+from datasets import get_num_classes
 from models import get_relevance_layer, get_transforms
 from utils.logging_utils import LoggerState, log_crp_heatmap
 from utils.prueba_crp import extract_heatmap
@@ -298,16 +299,25 @@ def compute_features_weights_per_client(
     Returns:
         Tensor of shape (n_labels, n_clients, n_features) with feature weights.
     """
-    print("Running round CRP")
     model = server_model["model"]
     weights = server_model["weights"]
     feature_dim = model.fc.weight.shape[1]
-
-    clients_probs: Dict[int, Dict[int, List[float]]] = {}
-    clients_relevances: Dict[int, Dict[int, torch.Tensor]] = {}
+    n_clients = len(weights)
 
     use_crp = config.causal_crp
     use_logits = config.causal_logits
+
+    if not use_crp and not use_logits:
+        # "uniform" causal mode: no CRP/logits scoring at all, every client
+        # gets equal weight -- skip the per-client CRP/logits loop entirely.
+        num_classes = get_num_classes(config.dataset)
+        return torch.full(
+            (num_classes, n_clients, feature_dim), 1.0 / n_clients, device=device
+        )
+
+    print("Running round CRP")
+    clients_probs: Dict[int, Dict[int, List[float]]] = {}
+    clients_relevances: Dict[int, Dict[int, torch.Tensor]] = {}
 
     for client_id in range(len(weights)):
         client_model = load_client_model(model, weights, client_id, device)

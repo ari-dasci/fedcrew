@@ -169,3 +169,95 @@ def test_moon_flags_parse_and_are_reflected_in_names(monkeypatch):
     assert config.moon_tau == 0.1
     assert config.get_aggregator_name() == "moon"
     assert "moon" in config.get_wandb_run_name()
+
+
+def test_wandb_tags_always_include_instrumentation_version_and_custom_tags():
+    from config import INSTRUMENTATION_VERSION
+
+    config = ExperimentConfig(
+        dataset="celeba",
+        clients=30,
+        fedcrew=True,
+        lognum=0,
+        epochs=5,
+        batchsize=64,
+        clipgradients=False,
+        samples=3,
+        no_log=True,
+        fedprox=0.0,
+        fednova=False,
+        rounds=100,
+        l1=0.01,
+        l2=0.0,
+        alpha=0.65,
+        l2_fc=0.0,
+        seed=7,
+        wandb_tags=["anchor-sweep"],
+    )
+
+    tags = config.get_wandb_tags()
+
+    assert tags == [INSTRUMENTATION_VERSION, "anchor-sweep"]
+
+
+def test_wandb_tags_default_to_just_instrumentation_version(monkeypatch):
+    from config import INSTRUMENTATION_VERSION
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--dataset",
+            "celeba",
+            "--clients",
+            "30",
+            "--rounds",
+            "100",
+            "--epochs",
+            "5",
+            "--samples",
+            "3",
+            "--alpha",
+            "0.65",
+            "--l1",
+            "0.01",
+        ],
+    )
+
+    config = parse_args()
+
+    assert config.get_wandb_tags() == [INSTRUMENTATION_VERSION]
+
+
+def test_causal_mode_uniform_disables_crp_and_logits(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--dataset",
+            "celeba",
+            "--clients",
+            "30",
+            "--rounds",
+            "100",
+            "--epochs",
+            "5",
+            "--samples",
+            "3",
+            "--alpha",
+            "0.65",
+            "--l1",
+            "0.01",
+            "--fedcrew",
+            "--causal-mode",
+            "uniform",
+        ],
+    )
+
+    config = parse_args()
+
+    assert config.causal_mode == "uniform"
+    assert config.causal_crp is False
+    assert config.causal_logits is False
