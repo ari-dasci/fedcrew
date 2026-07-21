@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working style
+
+Do NOT use subagents (the `Agent` tool — Explore, Plan, general-purpose, forks, etc.) in this
+repository, including during plan-mode exploration. They consume excessive usage; do
+exploration and implementation work directly instead.
+
 ## Project
 
 FedCReW: a federated learning approach that uses Concept Relevance Propagation (CRP) to weight
@@ -71,11 +77,12 @@ excluded from the remaining test set for the rest of the run. Selection is deter
 
 **Model/dataset registries are config-driven, not polymorphic**: `models.py: DATASET_CONFIG` and
 `datasets.py: DATASET_CONFIG` are separate dicts keyed by the same dataset name strings
-(`cifar_10`, `cifar_10_non_iid`, `celeba`, `celeba_a`, `celeba_m`, `mnist_non_iid`), each mapping to
-transforms/model-factory or a FLEX dataset loader respectively. Adding a dataset means adding an
-entry to both, plus a relevance-layer case in `models.py: fetch_relevance_layer` if it uses a new
-architecture. Non-IID CIFAR-10/CelebA/EMNIST loaders cache their FLEX-partitioned dataset to disk
-(`*.pck` files via `dill`) so re-runs skip the expensive partitioning step.
+(`cifar_10`, `cifar_10_non_iid`, `cifar_100_non_iid`, `celeba`, `celeba_a`, `celeba_m`,
+`mnist_non_iid`), each mapping to transforms/model-factory or a FLEX dataset loader respectively.
+Adding a dataset means adding an entry to both, plus a relevance-layer case in
+`models.py: fetch_relevance_layer` if it uses a new architecture. Non-IID
+CIFAR-10/CIFAR-100/CelebA/EMNIST loaders cache their FLEX-partitioned dataset to disk (`*.pck`
+files via `dill`) so re-runs skip the expensive partitioning step.
 
 Other aggregation variants live alongside FedCReW: `utils/fednova.py` (iteration-count-weighted
 softmax aggregation) and `utils/fedprox.py` (proximal regularization term added to client loss).

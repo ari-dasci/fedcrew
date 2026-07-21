@@ -175,6 +175,7 @@ def _create_parser() -> argparse.ArgumentParser:
         choices=[
             "cifar_10",
             "cifar_10_non_iid",
+            "cifar_100_non_iid",
             "celeba",
             "celeba_a",
             "celeba_m",

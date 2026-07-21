@@ -48,6 +48,11 @@ DATASET_CONFIG = {
         transforms=lambda: ResNet18_Weights.DEFAULT.transforms(),
         model_factory=lambda: _get_resnet(num_classes=10),
     ),
+    "cifar_100_non_iid": DatasetConfig(
+        num_classes=100,
+        transforms=lambda: ResNet18_Weights.DEFAULT.transforms(),
+        model_factory=lambda: _get_resnet(num_classes=100),
+    ),
     "mnist_non_iid": DatasetConfig(
         num_classes=10,
         transforms=lambda: transforms.Compose([transforms.ToTensor()]),

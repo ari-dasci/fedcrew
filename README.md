@@ -79,7 +79,7 @@ python main.py --dataset cifar_10 --fedcrew --rounds 100 --clients 25 --epochs 1
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `--dataset` | Dataset to use: `cifar_10`, `cifar_10_non_iid`, `celeba`, `celeba_a`, `celeba_m`, `mnist_non_iid` | `cifar_10` |
+| `--dataset` | Dataset to use: `cifar_10`, `cifar_10_non_iid`, `cifar_100_non_iid`, `celeba`, `celeba_a`, `celeba_m`, `mnist_non_iid` | `cifar_10` |
 | `--clients` | Number of clients per round | 100 |
 | `--fedcrew` | Enable FedCReW weighted aggregation | False |
 | `--rounds` | Number of federation rounds | 100 |
@@ -136,6 +136,7 @@ tensorboard --logdir runs/cifar_10/
 The repository supports several federated datasets:
 
 - **CIFAR-10**: 10-class image classification (IID and non-IID)
+- **CIFAR-100**: 100-class image classification (non-IID)
 - **CelebA**: Binary classification tasks (attractive, smiling, male)
 - **EMNIST**: Handwritten character recognition (non-IID)
 
