@@ -67,6 +67,7 @@ class ExperimentConfig:
     moon: bool = False
     moon_mu: float = 1.0
     moon_tau: float = 0.5
+    feddyn: float = 0.0
     wandb_tags: List[str] = field(default_factory=list)
 
     @property
@@ -82,6 +83,8 @@ class ExperimentConfig:
             return "fednova"
         elif self.moon:
             return "moon"
+        elif self.feddyn > 0.0:
+            return "feddyn"
         elif self.fedprox > 0.0:
             return "fedprox"
         else:
@@ -105,6 +108,7 @@ class ExperimentConfig:
             "moon" if self.moon else "",
             f"moon_mu{self.moon_mu}" if self.moon and self.moon_mu != 1.0 else "",
             f"moon_tau{self.moon_tau}" if self.moon and self.moon_tau != 0.5 else "",
+            f"feddyn{self.feddyn}" if self.feddyn > 0.0 else "",
         ]
         return f"runs/{self.dataset}/" + ".".join([part for part in parts if part])
 
@@ -125,6 +129,7 @@ class ExperimentConfig:
             f"anchor{self.anchor_seed}" if self.anchor_seed is not None else "",
             f"moon_mu{self.moon_mu}" if self.moon and self.moon_mu != 1.0 else "",
             f"moon_tau{self.moon_tau}" if self.moon and self.moon_tau != 0.5 else "",
+            f"feddyn{self.feddyn}" if self.feddyn > 0.0 else "",
         ]
         return ".".join([part for part in parts if part])
 
@@ -340,6 +345,12 @@ def _create_parser() -> argparse.ArgumentParser:
         help="MOON contrastive loss temperature (tau)",
     )
     parser.add_argument(
+        "--feddyn",
+        type=float,
+        default=0.0,
+        help="FedDyn dynamic-regularization alpha, set to 0.0 to disable",
+    )
+    parser.add_argument(
         "--wandb-tags",
         type=str,
         nargs="+",
@@ -417,5 +428,6 @@ def parse_args() -> ExperimentConfig:
         moon=args.moon,
         moon_mu=args.moon_mu,
         moon_tau=args.moon_tau,
+        feddyn=args.feddyn,
         wandb_tags=args.wandb_tags,
     )

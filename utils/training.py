@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 from config import ExperimentConfig
 from datasets import get_num_classes
 from models import get_transforms
+from utils.feddyn import compute_feddyn_loss, update_local_grad_state
 from utils.fedprox import fedprox_regularization
 from utils.moon import get_representation, moon_contrastive_loss
 
@@ -98,6 +99,16 @@ def train(
                         z, z_glob, z_prev, tau=config.moon_tau
                     )
 
+            # FedDyn dynamic regularization
+            if config.feddyn > 0.0:
+                feddyn_grad = client_flex_model.get("feddyn_grad")
+                loss += compute_feddyn_loss(
+                    model,
+                    client_flex_model["server_model"],
+                    feddyn_grad,
+                    alpha=config.feddyn,
+                )
+
             loss.backward()
             optimizer.step()
 
@@ -108,6 +119,16 @@ def train(
     # Store this round's trained model as the client's "previous" model for MOON
     if config.moon:
         client_flex_model["prev_model"] = copy.deepcopy(model).cpu()
+
+    # Update this client's persisted local gradient state for FedDyn
+    if config.feddyn > 0.0:
+        feddyn_grad = client_flex_model.get("feddyn_grad")
+        client_flex_model["feddyn_grad"] = update_local_grad_state(
+            model,
+            client_flex_model["server_model"],
+            feddyn_grad,
+            alpha=config.feddyn,
+        )
 
 
 def obtain_metrics(

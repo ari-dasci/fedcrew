@@ -85,7 +85,9 @@ CIFAR-10/CIFAR-100/CelebA/EMNIST loaders cache their FLEX-partitioned dataset to
 files via `dill`) so re-runs skip the expensive partitioning step.
 
 Other aggregation variants live alongside FedCReW: `utils/fednova.py` (iteration-count-weighted
-softmax aggregation) and `utils/fedprox.py` (proximal regularization term added to client loss).
+softmax aggregation), `utils/fedprox.py` (proximal regularization term added to client loss),
+and `utils/feddyn.py` (FedDyn's linear + quadratic dynamic-regularization term, plus a
+per-client persisted gradient state updated after each round).
 
 Logging (`utils/logging_utils.py`) writes to both TensorBoard (`runs/{dataset}/...`, filename
 encodes most config flags via `ExperimentConfig.get_summary_writer_filename`) and Weights & Biases

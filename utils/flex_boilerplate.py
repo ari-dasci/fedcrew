@@ -100,12 +100,16 @@ def create_transfer_model(server_flex_model: FlexModel, _):
 def clean_up_models(client_model: FlexModel, _):
     import gc
 
-    # Preserve MOON's "previous local model" across the clear -- it must
-    # survive to the client's next participation round.
+    # Preserve MOON's "previous local model" and FedDyn's local gradient
+    # state across the clear -- both must survive to the client's next
+    # participation round.
     prev_model = client_model.get("prev_model")
+    feddyn_grad = client_model.get("feddyn_grad")
     client_model.clear()
     if prev_model is not None:
         client_model["prev_model"] = prev_model
+    if feddyn_grad is not None:
+        client_model["feddyn_grad"] = feddyn_grad
     gc.collect()
 
 

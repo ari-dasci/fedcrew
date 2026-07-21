@@ -27,19 +27,27 @@ FedCReW operates in three key phases during each federation round:
 ## Repository Structure
 
 ```
-├── main.py                  # Main entry point and training loop
-├── config.py                # Experiment configuration and argument parsing
-├── datasets.py              # Dataset loading and configuration
-├── models.py                # Model architectures
+├── main.py                    # Main entry point and training loop
+├── config.py                  # Experiment configuration and argument parsing
+├── datasets.py                # Dataset loading and configuration
+├── models.py                  # Model architectures
 ├── utils/
-│   ├── training.py          # Training and evaluation functions
-│   ├── crp_utils.py         # CRP attribution and heatmap generation
-│   ├── data_utils.py        # Data selection utilities
-│   ├── logging_utils.py     # TensorBoard and Weights & Biases logging
-│   ├── flex_boilerplate.py  # FLEX framework boilerplate
-│   ├── fedprox.py           # FedProx regularization
-│   └── fednova.py           # FedNova support
-└── pyproject.toml           # Project dependencies
+│   ├── training.py            # Training and evaluation functions
+│   ├── crp_utils.py           # CRP attribution and heatmap generation
+│   ├── data_utils.py          # Data selection utilities
+│   ├── logging_utils.py       # TensorBoard and Weights & Biases logging
+│   ├── checkpoint_utils.py    # Checkpoint / prediction / CRP-map artifact saving
+│   ├── alignment_utils.py     # CKA / classifier-head divergence diagnostics
+│   ├── flex_boilerplate.py    # FLEX framework boilerplate
+│   ├── fedprox.py             # FedProx regularization
+│   ├── fednova.py             # FedNova support
+│   ├── feddyn.py              # FedDyn dynamic regularization
+│   ├── moon.py                # MOON model-contrastive regularization
+│   └── seed_utils.py          # Reproducibility seeding
+├── scripts/                   # Cluster/ablation/sweep runner shell scripts
+├── tests/                     # Pytest suite (mocks around CUDA/CRP/dataset deps)
+├── docs/                      # Reviewer-revision work plan and related notes
+└── pyproject.toml             # Project dependencies
 ```
 
 ## Installation
@@ -89,6 +97,7 @@ python main.py --dataset cifar_10 --fedcrew --rounds 100 --clients 25 --epochs 1
 | `--alpha` | Threshold for counting sample as correct in CRP | 0.0 |
 | `--fedprox` | FedProx regularization factor (0.0 to disable) | 0.0 |
 | `--fednova` | Enable FedNova aggregation | False |
+| `--feddyn` | FedDyn dynamic-regularization alpha (0.0 to disable) | 0.0 |
 | `--l1` | L1 regularization factor | 0.0 |
 | `--l2` | L2 regularization factor (weight decay) | 0.0 |
 | `--l2_fc` | L2 regularization for FC layer only | 0.0 |
