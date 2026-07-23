@@ -17,6 +17,29 @@ class DatasetConfig:
     loader: Callable[[], Tuple[FedDataset, Dataset, List[int]]]
 
 
+def _hf_load_dataset(*args, **kwargs):
+    """Import the real Hugging Face `datasets.load_dataset`, bypassing this project's
+    own `datasets.py` module which otherwise shadows the `datasets` package name.
+    """
+    import sys
+    from pathlib import Path
+
+    project_root = str(Path(__file__).resolve().parent)
+    saved_module = sys.modules.pop("datasets", None)
+    saved_path = sys.path
+    sys.path = [p for p in sys.path if p not in ("", ".", project_root)]
+    try:
+        from datasets import load_dataset  # ty: ignore[unresolved-import]
+
+        kwargs.setdefault("cache_dir", "../data")
+        kwargs.setdefault("on_bad_files", "error")
+        return load_dataset(*args, **kwargs)
+    finally:
+        sys.path = saved_path
+        if saved_module is not None:
+            sys.modules["datasets"] = saved_module
+
+
 def _celeba_non_iid(label: int = -9):
     import dill as pickle
     from flex.datasets.federated_datasets import federated_celeba
@@ -51,18 +74,19 @@ def _celeba_non_iid(label: int = -9):
 
 
 def _cifar_10_iid():
-    from torchvision.datasets import CIFAR10
-
-    train_data = CIFAR10(root="../data", train=True, download=True, transform=None)
-    test_data = CIFAR10(root="../data", train=False, download=True, transform=None)
-    flex_dataset = Dataset.from_torchvision_dataset(train_data)
-    test_data = Dataset.from_torchvision_dataset(test_data)
+    train_data = _hf_load_dataset("uoft-cs/cifar10", split="train")
+    test_data = _hf_load_dataset("uoft-cs/cifar10", split="test")
 
     config = FedDatasetConfig(seed=0)
     config.replacement = False
     config.n_nodes = 200
 
-    flex_dataset = FedDataDistribution.from_config(flex_dataset, config)
+    flex_dataset = FedDataDistribution.from_config_with_huggingface_dataset(
+        train_data, config, X_columns=["img"], label_columns=["label"]
+    )
+    test_data = Dataset.from_huggingface_dataset(
+        test_data, X_columns=["img"], label_columns=["label"]
+    )
 
     data_threshold = 30
     cids = list(flex_dataset.keys())
@@ -114,7 +138,6 @@ def _get_dirichlet_distribution(n_clients, alpha=0.1, n_classes=10, total_per_cl
 
 def _cifar_10_non_iid():
     import dill as pickle
-    from torchvision.datasets import CIFAR10
 
     try:
         with open("cifar10_non_iid_fed.pck", "rb") as f:
@@ -123,10 +146,8 @@ def _cifar_10_non_iid():
             test_data = pickle.load(f)
     except FileNotFoundError:
         print("Creating CIFAR-10 non-IID dataset")
-        train_data = CIFAR10(root="../data", train=True, download=True, transform=None)
-        test_data = CIFAR10(root="../data", train=False, download=True, transform=None)
-        flex_dataset = Dataset.from_torchvision_dataset(train_data)
-        test_data = Dataset.from_torchvision_dataset(test_data)
+        train_data = _hf_load_dataset("uoft-cs/cifar10", split="train")
+        test_data = _hf_load_dataset("uoft-cs/cifar10", split="test")
 
         dist_matrix = _get_dirichlet_distribution(
             n_clients=200, alpha=0.1, n_classes=10
@@ -137,7 +158,12 @@ def _cifar_10_non_iid():
         config.n_nodes = 200
         config.weights_per_label = dist_matrix
 
-        flex_dataset = FedDataDistribution.from_config(flex_dataset, config)
+        flex_dataset = FedDataDistribution.from_config_with_huggingface_dataset(
+            train_data, config, X_columns=["img"], label_columns=["label"]
+        )
+        test_data = Dataset.from_huggingface_dataset(
+            test_data, X_columns=["img"], label_columns=["label"]
+        )
 
         data_threshold = 30
         cids = list(flex_dataset.keys())
@@ -155,7 +181,6 @@ def _cifar_10_non_iid():
 
 def _cifar_100_non_iid():
     import dill as pickle
-    from torchvision.datasets import CIFAR100
 
     try:
         with open("cifar100_non_iid_fed.pck", "rb") as f:
@@ -164,10 +189,8 @@ def _cifar_100_non_iid():
             test_data = pickle.load(f)
     except FileNotFoundError:
         print("Creating CIFAR-100 non-IID dataset")
-        train_data = CIFAR100(root="../data", train=True, download=True, transform=None)
-        test_data = CIFAR100(root="../data", train=False, download=True, transform=None)
-        flex_dataset = Dataset.from_torchvision_dataset(train_data)
-        test_data = Dataset.from_torchvision_dataset(test_data)
+        train_data = _hf_load_dataset("uoft-cs/cifar100", split="train")
+        test_data = _hf_load_dataset("uoft-cs/cifar100", split="test")
 
         dist_matrix = _get_dirichlet_distribution(
             n_clients=200, alpha=0.1, n_classes=100, total_per_class=500
@@ -178,7 +201,12 @@ def _cifar_100_non_iid():
         config.n_nodes = 200
         config.weights_per_label = dist_matrix
 
-        flex_dataset = FedDataDistribution.from_config(flex_dataset, config)
+        flex_dataset = FedDataDistribution.from_config_with_huggingface_dataset(
+            train_data, config, X_columns=["img"], label_columns=["fine_label"]
+        )
+        test_data = Dataset.from_huggingface_dataset(
+            test_data, X_columns=["img"], label_columns=["fine_label"]
+        )
 
         data_threshold = 30
         cids = list(flex_dataset.keys())
