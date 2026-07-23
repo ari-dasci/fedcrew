@@ -25,6 +25,19 @@ set -euo pipefail
 GPUS="${GPUS:-0}"                    # comma-separated GPU ids, e.g. GPUS=4,6,7
 JOBS_PER_GPU="${JOBS_PER_GPU:-3}"    # concurrent jobs per GPU
 
+# Each job spawns its own DataLoader worker processes (main.py --dataloader-workers,
+# default 4) *and* its own torch CPU thread pool. With JOBS_PER_GPU concurrent
+# python processes per GPU, both must be capped so total CPU usage across all
+# concurrent jobs doesn't oversubscribe the host's cores.
+IFS=',' read -ra _GPU_LIST_FOR_CPU_CALC <<< "$GPUS"
+N_GPUS_FOR_CPU_CALC=${#_GPU_LIST_FOR_CPU_CALC[@]}
+N_CONCURRENT_JOBS=$((N_GPUS_FOR_CPU_CALC * JOBS_PER_GPU))
+HOST_CORES=$(nproc)
+CORES_PER_JOB=$(( HOST_CORES / N_CONCURRENT_JOBS ))
+[[ "$CORES_PER_JOB" -lt 1 ]] && CORES_PER_JOB=1
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-$CORES_PER_JOB}"
+DATALOADER_WORKERS="${DATALOADER_WORKERS:-$CORES_PER_JOB}"
+
 SEEDS=(0 1 2 3 4)
 DATASETS=(cifar_10_non_iid cifar_100_non_iid celeba celeba_a celeba_m)
 METHODS=(fedavg fedprox fednova fedcrew moon feddyn)   # fedper: add once implemented
@@ -138,6 +151,7 @@ run_job() {
     --alpha "${HP_ALPHA[$dataset]}"
     --l1 "${HP_L1[$dataset]}"
     --seed "$seed"
+    --dataloader-workers "$DATALOADER_WORKERS"
     --wandb-group "$WANDB_GROUP"
     --wandb-tags cluster-matrix
     "${extra_flags[@]}")

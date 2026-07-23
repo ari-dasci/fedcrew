@@ -69,6 +69,8 @@ class ExperimentConfig:
     moon_tau: float = 0.5
     feddyn: float = 0.0
     wandb_tags: List[str] = field(default_factory=list)
+    deterministic: bool = False
+    dataloader_workers: int = 4
 
     @property
     def causal(self) -> bool:
@@ -251,7 +253,7 @@ def _create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--batchsize",
         type=int,
-        default=64,
+        default=256,
         help="Batch size to use for training on clients",
     )
     parser.add_argument(
@@ -358,6 +360,19 @@ def _create_parser() -> argparse.ArgumentParser:
         help="Extra WandB tags for this run (e.g. a sweep name), on top of the "
         "automatic instrumentation-revision tag",
     )
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="Force bitwise-deterministic cuDNN kernels (slower, disables TF32 "
+        "conv autotuning). Off by default -- runs stay statistically "
+        "reproducible across seeds without this.",
+    )
+    parser.add_argument(
+        "--dataloader-workers",
+        type=int,
+        default=4,
+        help="Number of DataLoader worker processes for client/eval loading",
+    )
     return parser
 
 
@@ -430,4 +445,6 @@ def parse_args() -> ExperimentConfig:
         moon_tau=args.moon_tau,
         feddyn=args.feddyn,
         wandb_tags=args.wandb_tags,
+        deterministic=args.deterministic,
+        dataloader_workers=args.dataloader_workers,
     )

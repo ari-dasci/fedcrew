@@ -1,6 +1,7 @@
 """CRP (Conditional Relevance Propagation) utilities."""
 
 import os
+from contextlib import nullcontext
 from copy import deepcopy
 from typing import Dict, List, Union
 
@@ -196,14 +197,21 @@ def group_correct_class_probs(
 
     dataloader = DataLoader(dataset, batch_size=config.batchsize)
     logits: Dict[int, List[float]] = {}
+    autocast_ctx = (
+        torch.autocast("cuda", dtype=torch.bfloat16)
+        if device == "cuda"
+        else nullcontext()
+    )
 
-    with torch.no_grad():
+    with torch.inference_mode(), autocast_ctx:
         for inputs, labels in dataloader:
             inputs = inputs.to(device)
             labels = labels.to(device)
 
             sample_logits = model(inputs)
-            probs = torch.softmax(sample_logits, dim=1)
+            # softmax stays fp32 under autocast (numerically sensitive op);
+            # the alpha=0.5 threshold below relies on that precision.
+            probs = torch.softmax(sample_logits.float(), dim=1)
             correct_class_probs = probs.gather(1, labels.unsqueeze(1)).squeeze(1)
 
             for label, prob in zip(
@@ -242,6 +250,11 @@ def get_crp_attribution(
         Dictionary mapping labels to attribution tensors.
     """
     data_transforms = get_transforms(config.dataset)
+    # `data_transforms` is applied exactly once, via `to_torchvision_dataset`
+    # below -- so the DataLoader collates already-transformed tensors (raw
+    # samples, e.g. PIL Images, aren't collatable). Re-applying `data_transforms`
+    # to the batched/squeezed tensor here used to double-apply it (resize/crop/
+    # normalize twice), corrupting the CRP relevance signal.
     dataset = sample_dataset.to_torchvision_dataset(transform=data_transforms)
     dataloader = DataLoader(dataset, batch_size=1)
 
@@ -254,8 +267,7 @@ def get_crp_attribution(
     contributions: dict = {}
 
     for sample, label in dataloader:
-        sample = data_transforms(sample.squeeze()).to(device)
-        sample = sample.unsqueeze(0)
+        sample = sample.to(device)
         sample.requires_grad = True
 
         conditions = [{"y": [label]}]

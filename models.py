@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Callable
 
 import torch
@@ -77,6 +78,7 @@ def get_model(dataset: str):
     return config.model_factory()
 
 
+@lru_cache(maxsize=None)
 def get_transforms(dataset: str):
     config = DATASET_CONFIG.get(dataset, DATASET_CONFIG["default"])
     return config.transforms()

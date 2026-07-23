@@ -31,7 +31,7 @@ from utils.logging_utils import (
     save_predictions,
     setup_logging,
 )
-from utils.seed_utils import seed_everything
+from utils.seed_utils import configure_backends, seed_everything
 from utils.training import obtain_metrics, obtain_metrics_with_predictions, train
 
 # Backward compatibility: also import old name
@@ -198,8 +198,9 @@ def run_server_pool(config: ExperimentConfig, logger: LoggerState) -> None:
 def main() -> None:
     """Main entry point."""
     config = parse_args()
+    configure_backends()
     if config.seed is not None:
-        seed_everything(config.seed)
+        seed_everything(config.seed, deterministic=config.deterministic)
     logger = setup_logging(config)
 
     try:
