@@ -49,7 +49,7 @@ FEDDYN_ALPHA=0.01
 # Per-dataset hyperparameters. Pre-filled from README.md / the existing
 # ablation scripts as a starting point -- REVIEW/EDIT before the real run.
 declare -A HP_CLIENTS=(
-  [cifar_10_non_iid]=25 [cifar_100_non_iid]=25
+  [cifar_10_non_iid]=15 [cifar_100_non_iid]=15
   [celeba]=30 [celeba_a]=30 [celeba_m]=30
 )
 declare -A HP_ROUNDS=(
@@ -61,15 +61,15 @@ declare -A HP_EPOCHS=(
   [celeba]=5 [celeba_a]=5 [celeba_m]=5
 )
 declare -A HP_SAMPLES=(
-  [cifar_10_non_iid]=2 [cifar_100_non_iid]=2
+  [cifar_10_non_iid]=3 [cifar_100_non_iid]=3
   [celeba]=3 [celeba_a]=3 [celeba_m]=3
 )
 declare -A HP_ALPHA=(
-  [cifar_10_non_iid]=0.0 [cifar_100_non_iid]=0.0
-  [celeba]=0.65 [celeba_a]=0.65 [celeba_m]=0.65
+  [cifar_10_non_iid]=0.5 [cifar_100_non_iid]=0.5
+  [celeba]=0.5 [celeba_a]=0.5 [celeba_m]=0.5
 )
 declare -A HP_L1=(
-  [cifar_10_non_iid]=0.0 [cifar_100_non_iid]=0.0
+  [cifar_10_non_iid]=0.01 [cifar_100_non_iid]=0.01
   [celeba]=0.01 [celeba_a]=0.01 [celeba_m]=0.01
 )
 
